@@ -10,9 +10,10 @@ import { Checkout, OrderSuccess } from './components/Checkout';
 import { AIAssistant } from './components/AIAssistant';
 import { AuthModal } from './components/AuthModal';
 import { UserProfile } from './components/UserProfile';
-import { SalesPOS } from './components/SalesPOS';
+import { ProductDetail } from './components/ProductDetail';
+import OrderTracking from './components/OrderTracking';
 import { Product, CartItem, ViewState, User } from './types';
-import { api } from './lib/api';
+import { api, authManager } from './lib/api';
 import { toast } from 'react-toastify';
 
 export default function Home() {
@@ -25,25 +26,59 @@ export default function Home() {
   const [searchQuery, setSearchQuery] = useState('');
   const [currentUser, setCurrentUser] = useState<User | null>(null);
   const [isAuthModalOpen, setIsAuthModalOpen] = useState(false);
+  const [selectedProductId, setSelectedProductId] = useState<string | null>(null);
+  const [trackingOrderId, setTrackingOrderId] = useState<string | null>(null);
 
   // Load Products
   useEffect(() => {
     fetchProducts();
   }, []);
 
-  // Check localStorage for session
+  // Validate session on mount - check tokens, not just localStorage
   useEffect(() => {
-    const savedUser = localStorage.getItem('freshmart_user');
-    if (savedUser) {
-      try {
-        setCurrentUser(JSON.parse(savedUser));
-      } catch (e) {
-        localStorage.removeItem('freshmart_user');
+    const validateSession = async () => {
+      const savedUser = localStorage.getItem('freshmart_user');
+      if (!savedUser) {
+        setIsAuthModalOpen(true);
+        return;
       }
-    } else {
-      // No saved user - show auth modal
+
+      let user: User;
+      try {
+        user = JSON.parse(savedUser);
+      } catch {
+        localStorage.removeItem('freshmart_user');
+        setIsAuthModalOpen(true);
+        return;
+      }
+
+      // Verify tokens are still valid on the server
+      const { authenticated } = await authManager.checkAuth();
+      if (authenticated) {
+        // Try refreshing to ensure access token is fresh
+        await authManager.refresh();
+        setCurrentUser(user);
+      } else {
+        // Tokens expired/invalid - force re-login
+        localStorage.removeItem('freshmart_user');
+        setCurrentUser(null);
+        setIsAuthModalOpen(true);
+      }
+    };
+
+    validateSession();
+  }, []);
+
+  // Listen for auth errors (e.g. refresh failed mid-session) → force logout
+  useEffect(() => {
+    const cleanup = authManager.onAuthError(() => {
+      localStorage.removeItem('freshmart_user');
+      setCurrentUser(null);
+      setView('shop');
       setIsAuthModalOpen(true);
-    }
+      toast.error('Session expired. Please sign in again.');
+    });
+    return cleanup;
   }, []);
 
   // Load cart from localStorage
@@ -73,12 +108,10 @@ export default function Home() {
   };
 
   const addToCart = (product: Product) => {
-    // Require login to add to cart
     if (!currentUser) {
       setIsAuthModalOpen(true);
       return;
     }
-
     setCart(prev => {
       const existing = prev.find(item => item.id === product.id);
       if (existing) {
@@ -110,6 +143,15 @@ export default function Home() {
     setProducts(prev => [newProd, ...prev]);
   };
 
+  const handleAddProducts = async (productsList: Partial<Product>[]) => {
+    const newProducts: Product[] = [];
+    for (const product of productsList) {
+      const newProd = await api.addProduct(product);
+      newProducts.push(newProd);
+    }
+    setProducts(prev => [...newProducts, ...prev]);
+  };
+
   const handleUpdateProduct = async (product: Product) => {
     await api.updateProduct(product);
     setProducts(prev => prev.map(p => p.id === product.id ? product : p));
@@ -127,16 +169,19 @@ export default function Home() {
 
     if (user.role === 'admin') {
       setView('admin');
-    } else if (user.role === 'sales') {
-      setView('sales');
     }
   };
 
-  const handleLogout = () => {
+  const handleLogout = async () => {
+    try {
+      await api.logout(); // Clear server-side tokens & cookies
+    } catch {
+      // Continue with client-side cleanup even if server call fails
+    }
     localStorage.removeItem('freshmart_user');
     setCurrentUser(null);
     setView('shop');
-    setIsAuthModalOpen(true); // Show login modal after logout
+    setIsAuthModalOpen(true);
   };
 
   const handleOrderSuccess = async (orderData: any) => {
@@ -150,6 +195,18 @@ export default function Home() {
     }
   };
 
+  const handleProductClick = (product: Product) => {
+    setSelectedProductId(product.id);
+    setView('product-detail');
+    window.scrollTo(0, 0);
+  };
+
+  const handleTrackOrder = (orderId: string) => {
+    setTrackingOrderId(orderId);
+    setView('order-tracking');
+    window.scrollTo(0, 0);
+  };
+
   const handleAskAI = () => {
     setIsCartOpen(false);
   };
@@ -160,7 +217,7 @@ export default function Home() {
   };
 
   return (
-    <div className="min-h-screen bg-gray-50 flex flex-col font-sans">
+    <div className="min-h-screen bg-gray-50 dark:bg-gray-900 flex flex-col font-sans">
       <Navbar
         cartCount={cart.reduce((a, b) => a + b.quantity, 0)}
         isAdmin={currentUser?.role === 'admin'}
@@ -205,34 +262,50 @@ export default function Home() {
             products={products}
             onAddToCart={addToCart}
             searchQuery={searchQuery}
+            onProductClick={handleProductClick}
           />
         )}
+
+        {view === 'product-detail' && currentUser && selectedProductId && (() => {
+          const selectedProduct = products.find(p => p.id === selectedProductId);
+          return selectedProduct ? (
+            <ProductDetail
+              product={selectedProduct}
+              allProducts={products}
+              onAddToCart={addToCart}
+              onBack={() => setView('shop')}
+              onProductClick={handleProductClick}
+              currentUser={currentUser ? { id: currentUser.id, name: currentUser.name, role: currentUser.role } : null}
+            />
+          ) : (
+            <div className="text-center py-20">
+              <p className="text-gray-500 dark:text-gray-400">Product not found.</p>
+              <button onClick={() => setView('shop')} className="mt-4 text-green-600 hover:text-green-700 font-medium">
+                Back to Shop
+              </button>
+            </div>
+          );
+        })()}
 
         {view === 'admin' && currentUser?.role === 'admin' ? (
           <AdminPanel
             products={products}
             onAddProduct={handleAddProduct}
+            onAddProducts={handleAddProducts}
             onUpdateProduct={handleUpdateProduct}
             onDeleteProduct={handleDeleteProduct}
+            onRefreshProducts={fetchProducts}
             currentUser={currentUser}
           />
         ) : view === 'admin' ? (
           <div className="text-center py-20 text-red-600">Access Denied. Admins Only.</div>
         ) : null}
 
-        {view === 'sales' && currentUser?.role === 'sales' ? (
-          <SalesPOS
-            currentUser={currentUser}
-            onLogout={handleLogout}
-          />
-        ) : view === 'sales' ? (
-          <div className="text-center py-20 text-red-600">Access Denied. Sales Staff Only.</div>
-        ) : null}
-
         {view === 'profile' && currentUser && (
           <UserProfile
             user={currentUser}
             onUpdateUser={handleUpdateUser}
+            onTrackOrder={handleTrackOrder}
             onReorder={(items) => {
               // Add items to cart
               items.forEach(item => {
@@ -248,6 +321,13 @@ export default function Home() {
               });
               setIsCartOpen(true);
             }}
+          />
+        )}
+
+        {view === 'order-tracking' && currentUser && trackingOrderId && (
+          <OrderTracking
+            orderId={trackingOrderId}
+            onBack={() => setView('profile')}
           />
         )}
 

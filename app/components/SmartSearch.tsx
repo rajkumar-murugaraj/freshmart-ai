@@ -1,14 +1,47 @@
 'use client';
 
-import React, { useState, useEffect, useRef, useMemo } from 'react';
-import { Search, X, Filter, ChevronDown, Clock, TrendingUp } from 'lucide-react';
+import React, { useState, useEffect, useRef, useMemo, useCallback } from 'react';
+import { Search, X, Filter, ChevronDown, Clock, TrendingUp, Mic, MicOff, Loader2, ShoppingCart, CheckCircle } from 'lucide-react';
 import { Product, CATEGORIES } from '../types';
+import Fuse from 'fuse.js';
+
+// Voice recognition types
+interface SpeechRecognitionEvent {
+  results: SpeechRecognitionResultList;
+  resultIndex: number;
+}
+
+interface SpeechRecognitionResultList {
+  length: number;
+  item(index: number): SpeechRecognitionResult;
+  [index: number]: SpeechRecognitionResult;
+}
+
+interface SpeechRecognitionResult {
+  isFinal: boolean;
+  length: number;
+  item(index: number): SpeechRecognitionAlternative;
+  [index: number]: SpeechRecognitionAlternative;
+}
+
+interface SpeechRecognitionAlternative {
+  transcript: string;
+  confidence: number;
+}
+
+interface VoiceParsedItem {
+  product: Product;
+  quantity: number;
+  unit?: string;
+  confidence: number;
+}
 
 interface SmartSearchProps {
   products: Product[];
   onSearch: (query: string) => void;
   onFilterChange: (filters: SearchFilters) => void;
   onProductSelect: (product: Product) => void;
+  onVoiceAddToCart?: (items: Array<{ product: Product; quantity: number }>) => void;
 }
 
 export interface SearchFilters {
@@ -32,7 +65,8 @@ export const SmartSearch: React.FC<SmartSearchProps> = ({
   products,
   onSearch,
   onFilterChange,
-  onProductSelect
+  onProductSelect,
+  onVoiceAddToCart
 }) => {
   const [query, setQuery] = useState('');
   const [isFocused, setIsFocused] = useState(false);
@@ -41,6 +75,16 @@ export const SmartSearch: React.FC<SmartSearchProps> = ({
   const [recentSearches, setRecentSearches] = useState<string[]>([]);
   const searchRef = useRef<HTMLDivElement>(null);
   const inputRef = useRef<HTMLInputElement>(null);
+
+  // Voice recognition state
+  const [isListening, setIsListening] = useState(false);
+  const [voiceTranscript, setVoiceTranscript] = useState('');
+  const [parsedItems, setParsedItems] = useState<VoiceParsedItem[]>([]);
+  const [isProcessingVoice, setIsProcessingVoice] = useState(false);
+  const [voiceError, setVoiceError] = useState<string | null>(null);
+  const [showVoiceResults, setShowVoiceResults] = useState(false);
+  const [voiceSupported, setVoiceSupported] = useState(true);
+  const recognitionRef = useRef<any>(null);
 
   // Load recent searches from localStorage
   useEffect(() => {
@@ -65,28 +109,173 @@ export const SmartSearch: React.FC<SmartSearchProps> = ({
     return () => document.removeEventListener('mousedown', handleClickOutside);
   }, []);
 
-  // Get autocomplete suggestions
+  // Check for voice recognition support and initialize
+  useEffect(() => {
+    const SpeechRecognition = (window as any).SpeechRecognition || (window as any).webkitSpeechRecognition;
+    if (!SpeechRecognition) {
+      setVoiceSupported(false);
+      return;
+    }
+
+    const recognition = new SpeechRecognition();
+    recognition.continuous = false;
+    recognition.interimResults = true;
+    recognition.lang = 'en-IN';
+
+    recognition.onstart = () => {
+      setIsListening(true);
+      setVoiceError(null);
+      setVoiceTranscript('');
+    };
+
+    recognition.onresult = (event: SpeechRecognitionEvent) => {
+      let finalTranscript = '';
+      let interimTranscript = '';
+
+      for (let i = event.resultIndex; i < event.results.length; i++) {
+        const transcript = event.results[i][0].transcript;
+        if (event.results[i].isFinal) {
+          finalTranscript += transcript;
+        } else {
+          interimTranscript += transcript;
+        }
+      }
+
+      setVoiceTranscript(finalTranscript || interimTranscript);
+
+      if (finalTranscript) {
+        processVoiceCommand(finalTranscript);
+      }
+    };
+
+    recognition.onerror = (event: any) => {
+      console.error('Speech recognition error:', event.error);
+      setIsListening(false);
+      if (event.error === 'no-speech') {
+        setVoiceError('No speech detected. Please try again.');
+      } else if (event.error === 'audio-capture') {
+        setVoiceError('No microphone found. Please check your device.');
+      } else if (event.error === 'not-allowed') {
+        setVoiceError('Microphone access denied. Please allow microphone access.');
+      } else {
+        setVoiceError('Voice recognition error. Please try again.');
+      }
+    };
+
+    recognition.onend = () => {
+      setIsListening(false);
+    };
+
+    recognitionRef.current = recognition;
+
+    return () => {
+      if (recognitionRef.current) {
+        recognitionRef.current.abort();
+      }
+    };
+  }, []);
+
+  // Process voice command with AI
+  const processVoiceCommand = useCallback(async (transcript: string) => {
+    setIsProcessingVoice(true);
+    setShowVoiceResults(true);
+    setVoiceError(null);
+
+    try {
+      const response = await fetch('/api/ai/voice-parse', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ transcript, products })
+      });
+
+      const data = await response.json();
+
+      if (data.success && data.items?.length > 0) {
+        setParsedItems(data.items);
+      } else if (!data.understood) {
+        setVoiceError(data.message || 'Could not understand the command. Please try again.');
+        setParsedItems([]);
+      } else {
+        setVoiceError('No matching products found. Please try again.');
+        setParsedItems([]);
+      }
+    } catch (error) {
+      console.error('Voice processing error:', error);
+      setVoiceError('Failed to process voice command. Please try again.');
+      setParsedItems([]);
+    } finally {
+      setIsProcessingVoice(false);
+    }
+  }, [products]);
+
+  // Start voice recognition
+  const startListening = useCallback(() => {
+    if (recognitionRef.current && !isListening) {
+      setParsedItems([]);
+      setVoiceError(null);
+      setShowVoiceResults(true);
+      try {
+        recognitionRef.current.start();
+      } catch (error) {
+        console.error('Failed to start recognition:', error);
+      }
+    }
+  }, [isListening]);
+
+  // Stop voice recognition
+  const stopListening = useCallback(() => {
+    if (recognitionRef.current && isListening) {
+      recognitionRef.current.stop();
+    }
+  }, [isListening]);
+
+  // Add all parsed items to cart
+  const addAllToCart = useCallback(() => {
+    if (onVoiceAddToCart && parsedItems.length > 0) {
+      onVoiceAddToCart(parsedItems.map(item => ({
+        product: item.product,
+        quantity: item.quantity
+      })));
+      setShowVoiceResults(false);
+      setParsedItems([]);
+      setVoiceTranscript('');
+    }
+  }, [onVoiceAddToCart, parsedItems]);
+
+  // Close voice results
+  const closeVoiceResults = useCallback(() => {
+    setShowVoiceResults(false);
+    setParsedItems([]);
+    setVoiceTranscript('');
+    setVoiceError(null);
+  }, []);
+
+  // Initialize Fuse.js for fuzzy search
+  const fuse = useMemo(() => {
+    return new Fuse(products, {
+      keys: [
+        { name: 'name', weight: 0.5 },
+        { name: 'category', weight: 0.3 },
+        { name: 'description', weight: 0.2 }
+      ],
+      threshold: 0.4, // Lower = more strict, higher = more fuzzy (0.0 - 1.0)
+      distance: 100, // How far to search for a match
+      minMatchCharLength: 2,
+      includeScore: true,
+      ignoreLocation: true, // Search entire string, not just beginning
+      findAllMatches: true
+    });
+  }, [products]);
+
+  // Get autocomplete suggestions with fuzzy matching
   const suggestions = useMemo(() => {
     if (!query.trim() || query.length < 2) return [];
 
-    const searchLower = query.toLowerCase();
-    const matches: Product[] = [];
+    // Use Fuse.js for fuzzy search
+    const results = fuse.search(query, { limit: 6 });
 
-    // Search in product names and categories
-    for (const product of products) {
-      if (matches.length >= 6) break;
-
-      const nameMatch = product.name.toLowerCase().includes(searchLower);
-      const categoryMatch = product.category.toLowerCase().includes(searchLower);
-      const descMatch = product.description?.toLowerCase().includes(searchLower);
-
-      if (nameMatch || categoryMatch || descMatch) {
-        matches.push(product);
-      }
-    }
-
-    return matches;
-  }, [query, products]);
+    return results.map(result => result.item);
+  }, [query, fuse]);
 
   // Handle search submission
   const handleSearch = (searchQuery: string) => {
@@ -163,6 +352,19 @@ export const SmartSearch: React.FC<SmartSearchProps> = ({
               className="p-1.5 rounded-full hover:bg-gray-100 dark:hover:bg-gray-700 text-gray-400"
             >
               <X className="h-4 w-4" />
+            </button>
+          )}
+          {voiceSupported && (
+            <button
+              onClick={isListening ? stopListening : startListening}
+              className={`p-1.5 rounded-full transition-colors ${
+                isListening
+                  ? 'bg-red-100 dark:bg-red-900/50 text-red-600 animate-pulse'
+                  : 'hover:bg-gray-100 dark:hover:bg-gray-700 text-gray-400'
+              }`}
+              title={isListening ? 'Stop listening' : 'Voice search'}
+            >
+              {isListening ? <MicOff className="h-4 w-4" /> : <Mic className="h-4 w-4" />}
             </button>
           )}
           <button
@@ -380,6 +582,151 @@ export const SmartSearch: React.FC<SmartSearchProps> = ({
           >
             Apply Filters
           </button>
+        </div>
+      )}
+
+      {/* Voice Results Panel */}
+      {showVoiceResults && (
+        <div className="absolute top-full left-0 right-0 mt-2 bg-white dark:bg-gray-800 rounded-xl shadow-lg border border-gray-200 dark:border-gray-700 p-4 z-50">
+          <div className="flex items-center justify-between mb-3">
+            <h3 className="font-semibold text-gray-900 dark:text-white flex items-center">
+              {isListening ? (
+                <>
+                  <span className="w-2 h-2 bg-red-500 rounded-full animate-pulse mr-2" />
+                  Listening...
+                </>
+              ) : isProcessingVoice ? (
+                <>
+                  <Loader2 className="h-4 w-4 animate-spin mr-2" />
+                  Processing...
+                </>
+              ) : (
+                <>
+                  <Mic className="h-4 w-4 mr-2" />
+                  Voice Shopping
+                </>
+              )}
+            </h3>
+            <button
+              onClick={closeVoiceResults}
+              className="p-1 rounded-full hover:bg-gray-100 dark:hover:bg-gray-700 text-gray-400"
+            >
+              <X className="h-4 w-4" />
+            </button>
+          </div>
+
+          {/* Transcript Display */}
+          {voiceTranscript && (
+            <div className="mb-3 p-2 bg-gray-50 dark:bg-gray-700 rounded-lg">
+              <p className="text-sm text-gray-600 dark:text-gray-300">
+                <span className="font-medium">You said:</span> "{voiceTranscript}"
+              </p>
+            </div>
+          )}
+
+          {/* Error Display */}
+          {voiceError && (
+            <div className="mb-3 p-2 bg-red-50 dark:bg-red-900/30 rounded-lg">
+              <p className="text-sm text-red-600 dark:text-red-400">{voiceError}</p>
+            </div>
+          )}
+
+          {/* Listening State */}
+          {isListening && (
+            <div className="text-center py-6">
+              <div className="flex justify-center space-x-1 mb-3">
+                {[...Array(5)].map((_, i) => (
+                  <div
+                    key={i}
+                    className="w-1 bg-green-500 rounded-full animate-pulse"
+                    style={{
+                      height: `${Math.random() * 20 + 10}px`,
+                      animationDelay: `${i * 0.1}s`
+                    }}
+                  />
+                ))}
+              </div>
+              <p className="text-sm text-gray-500 dark:text-gray-400">
+                Try saying: "Add 1kg onions and a pack of bread"
+              </p>
+            </div>
+          )}
+
+          {/* Processing State */}
+          {isProcessingVoice && (
+            <div className="text-center py-6">
+              <Loader2 className="h-8 w-8 animate-spin text-green-600 mx-auto mb-2" />
+              <p className="text-sm text-gray-500 dark:text-gray-400">
+                Understanding your request...
+              </p>
+            </div>
+          )}
+
+          {/* Parsed Items */}
+          {!isListening && !isProcessingVoice && parsedItems.length > 0 && (
+            <div>
+              <p className="text-xs font-medium text-gray-500 dark:text-gray-400 mb-2">
+                Items to add ({parsedItems.length})
+              </p>
+              <div className="space-y-2 max-h-48 overflow-y-auto">
+                {parsedItems.map((item, idx) => (
+                  <div
+                    key={idx}
+                    className="flex items-center space-x-3 p-2 bg-gray-50 dark:bg-gray-700 rounded-lg"
+                  >
+                    <img
+                      src={item.product.image}
+                      alt={item.product.name}
+                      className="w-10 h-10 rounded-lg object-cover"
+                    />
+                    <div className="flex-1 min-w-0">
+                      <p className="text-sm font-medium text-gray-900 dark:text-white truncate">
+                        {item.product.name}
+                      </p>
+                      <p className="text-xs text-gray-500 dark:text-gray-400">
+                        Qty: {item.quantity} {item.unit || item.product.unit} • ₹{(item.product.price * item.quantity).toFixed(2)}
+                      </p>
+                    </div>
+                    <div className="flex items-center">
+                      <span className="text-xs text-green-600 bg-green-50 dark:bg-green-900/30 px-2 py-0.5 rounded-full">
+                        {Math.round(item.confidence * 100)}% match
+                      </span>
+                    </div>
+                  </div>
+                ))}
+              </div>
+              <div className="flex space-x-2 mt-4">
+                <button
+                  onClick={closeVoiceResults}
+                  className="flex-1 px-4 py-2 border border-gray-200 dark:border-gray-600 rounded-lg text-sm font-medium text-gray-700 dark:text-gray-300 hover:bg-gray-50 dark:hover:bg-gray-700 transition-colors"
+                >
+                  Cancel
+                </button>
+                <button
+                  onClick={addAllToCart}
+                  className="flex-1 px-4 py-2 bg-green-600 text-white rounded-lg text-sm font-medium hover:bg-green-700 transition-colors flex items-center justify-center"
+                >
+                  <ShoppingCart className="h-4 w-4 mr-1" />
+                  Add All to Cart
+                </button>
+              </div>
+            </div>
+          )}
+
+          {/* No Results State */}
+          {!isListening && !isProcessingVoice && parsedItems.length === 0 && !voiceError && voiceTranscript && (
+            <div className="text-center py-4">
+              <p className="text-sm text-gray-500 dark:text-gray-400">
+                No items found. Try speaking again.
+              </p>
+              <button
+                onClick={startListening}
+                className="mt-2 px-4 py-2 bg-green-600 text-white rounded-lg text-sm font-medium hover:bg-green-700 transition-colors"
+              >
+                Try Again
+              </button>
+            </div>
+          )}
         </div>
       )}
     </div>

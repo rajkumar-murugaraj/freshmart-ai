@@ -130,12 +130,61 @@ export const orderSchema = z.object({
   shippingAddress: addressSchema,
 });
 
+// Sale Schema (POS transaction)
+export const saleSchema = z.object({
+  items: z
+    .array(
+      z.object({
+        id: z.string().min(1, 'Item ID is required'),
+        name: z.string().min(1, 'Item name is required'),
+        price: z.number().positive('Price must be positive'),
+        quantity: z.number().int().positive('Quantity must be a positive integer'),
+      })
+    )
+    .min(1, 'Sale must have at least one item'),
+  total: z.number().positive('Total must be positive').optional(),
+  paymentMethod: z.enum(['cash', 'card', 'upi'], {
+    errorMap: () => ({ message: 'Payment method must be cash, card, or upi' }),
+  }),
+  customerId: z.string().optional(),
+  cashierId: z.string().optional(),
+  cashierName: z.string().max(100).optional(),
+});
+
+// Stock Update Schema
+export const stockUpdateSchema = z.object({
+  productId: z.string().min(1, 'Product ID is required'),
+  type: z.enum(['add', 'remove', 'set', 'sale'], {
+    errorMap: () => ({ message: 'Type must be add, remove, set, or sale' }),
+  }),
+  quantity: z.number().int('Quantity must be a whole number').min(0, 'Quantity cannot be negative'),
+  reason: z.string().max(200).optional(),
+  userId: z.string().optional(),
+});
+
+// Bulk Stock Update Schema
+export const bulkStockUpdateSchema = z.object({
+  updates: z
+    .array(
+      z.object({
+        productId: z.string().min(1, 'Product ID is required'),
+        quantity: z.number().int('Quantity must be a whole number').min(0, 'Quantity cannot be negative'),
+        reason: z.string().max(200).optional(),
+      })
+    )
+    .min(1, 'At least one update is required'),
+  userId: z.string().optional(),
+});
+
 // Type inference helpers
 export type RegisterInput = z.infer<typeof registerSchema>;
 export type LoginInput = z.infer<typeof loginSchema>;
 export type AddressInput = z.infer<typeof addressSchema>;
 export type ProductInput = z.infer<typeof productSchema>;
 export type OrderInput = z.infer<typeof orderSchema>;
+export type SaleInput = z.infer<typeof saleSchema>;
+export type StockUpdateInput = z.infer<typeof stockUpdateSchema>;
+export type BulkStockUpdateInput = z.infer<typeof bulkStockUpdateSchema>;
 
 // Helper function to validate and return errors
 export function validateData<T extends z.ZodTypeAny>(

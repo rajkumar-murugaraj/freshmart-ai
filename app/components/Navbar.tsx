@@ -64,7 +64,7 @@ export const Navbar: React.FC<NavbarProps> = ({
 
   return (
     <nav className="sticky top-0 z-50 bg-white dark:bg-gray-800 border-b border-gray-200 dark:border-gray-700 shadow-sm transition-colors duration-200">
-      <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
+      <div className="w-full px-3 sm:px-4 md:px-6 lg:px-8">
         <div className="flex justify-between h-16 items-center">
 
           <div className="flex items-center space-x-4">
@@ -111,16 +111,6 @@ export const Navbar: React.FC<NavbarProps> = ({
               </button>
             )}
 
-            {currentUser?.role === 'sales' && (
-              <button
-                onClick={() => setView('sales')}
-                className={`flex items-center space-x-1 text-sm font-medium ${currentView === 'sales' ? 'text-green-600' : 'text-gray-600 dark:text-gray-300 hover:text-green-600'}`}
-              >
-                <Receipt className="h-5 w-5" />
-                <span>POS System</span>
-              </button>
-            )}
-
             {/* Dark Mode Toggle */}
             <button
               onClick={toggleTheme}
@@ -130,7 +120,7 @@ export const Navbar: React.FC<NavbarProps> = ({
               {isDark ? <Sun className="h-5 w-5" /> : <Moon className="h-5 w-5" />}
             </button>
 
-            {currentView !== 'admin' && currentView !== 'sales' && (
+            {currentView !== 'admin' && (
               <>
                 {/* Wishlist Button */}
                 <button
@@ -257,19 +247,6 @@ export const Navbar: React.FC<NavbarProps> = ({
               >
                 <ShieldCheck className="h-5 w-5" />
                 <span>Admin Dashboard</span>
-              </button>
-            )}
-
-            {currentUser?.role === 'sales' && (
-              <button
-                onClick={() => {
-                  setView('sales');
-                  toggleMenu();
-                }}
-                className="flex items-center w-full space-x-2 text-gray-700 dark:text-gray-300 font-medium p-2 rounded hover:bg-gray-50 dark:hover:bg-gray-700"
-              >
-                <Receipt className="h-5 w-5" />
-                <span>POS System</span>
               </button>
             )}
 

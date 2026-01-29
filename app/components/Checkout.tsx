@@ -2,8 +2,14 @@
 
 import React, { useState, useEffect } from 'react';
 import { CartItem, PaymentMethod, User, Address } from '../types';
-import { CreditCard, Truck, CheckCircle, ArrowLeft, MapPin, Plus, AlertCircle, LogIn } from 'lucide-react';
+import { CreditCard, Truck, CheckCircle, ArrowLeft, MapPin, Plus, AlertCircle, LogIn, Loader2, Shield, Smartphone } from 'lucide-react';
 import { DeliverySlots, DeliverySlot } from './DeliverySlots';
+
+declare global {
+  interface Window {
+    Razorpay: any;
+  }
+}
 
 interface CheckoutProps {
   cart: CartItem[];
@@ -52,6 +58,23 @@ export const Checkout: React.FC<CheckoutProps> = ({ cart, currentUser, onBack, o
 
   const [paymentMethod, setPaymentMethod] = useState<PaymentMethod>(PaymentMethod.COD);
   const [selectedDeliverySlot, setSelectedDeliverySlot] = useState<DeliverySlot | null>(null);
+
+  // Razorpay state
+  const [isPaymentLoading, setIsPaymentLoading] = useState(false);
+  const [paymentError, setPaymentError] = useState<string | null>(null);
+  const [razorpayLoaded, setRazorpayLoaded] = useState(false);
+
+  // Load Razorpay script
+  useEffect(() => {
+    const script = document.createElement('script');
+    script.src = 'https://checkout.razorpay.com/v1/checkout.js';
+    script.async = true;
+    script.onload = () => setRazorpayLoaded(true);
+    document.body.appendChild(script);
+    return () => {
+      document.body.removeChild(script);
+    };
+  }, []);
 
   // Calculate total with delivery fee
   const deliveryFee = selectedDeliverySlot?.isExpress ? selectedDeliverySlot.price : 0;
@@ -156,6 +179,133 @@ export const Checkout: React.FC<CheckoutProps> = ({ cart, currentUser, onBack, o
   const handleDeliverySubmit = () => {
     if (!selectedDeliverySlot) return;
     setStep('payment');
+  };
+
+  // Initiate Razorpay payment
+  const initiateRazorpayPayment = async () => {
+    if (!currentUser || !razorpayLoaded) return;
+
+    setIsPaymentLoading(true);
+    setPaymentError(null);
+
+    let shippingAddress: Address;
+    if (isNewAddress) {
+      shippingAddress = {
+        id: Date.now().toString(),
+        label: addressForm.label || 'Home',
+        name: addressForm.name!,
+        email: addressForm.email!,
+        street: addressForm.street!,
+        city: addressForm.city!,
+        zip: addressForm.zip!,
+        phone: addressForm.phone!
+      };
+    } else {
+      const saved = currentUser?.addresses.find(a => a.id === selectedAddressId);
+      if (!saved) {
+        setIsPaymentLoading(false);
+        return;
+      }
+      shippingAddress = saved;
+    }
+
+    try {
+      // Create Razorpay order
+      const orderResponse = await fetch('/api/payment/create-order', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          amount: total,
+          currency: 'INR',
+          receipt: `order_${Date.now()}`,
+          notes: {
+            userId: currentUser.id,
+            customerName: shippingAddress.name,
+            customerEmail: shippingAddress.email
+          }
+        })
+      });
+
+      const orderData = await orderResponse.json();
+
+      if (!orderData.success) {
+        throw new Error(orderData.error || 'Failed to create payment order');
+      }
+
+      // Open Razorpay checkout
+      const options = {
+        key: orderData.key_id,
+        amount: orderData.order.amount,
+        currency: orderData.order.currency,
+        name: 'FreshMart',
+        description: `Order Payment - ${cart.length} items`,
+        order_id: orderData.order.id,
+        prefill: {
+          name: shippingAddress.name,
+          email: shippingAddress.email,
+          contact: shippingAddress.phone
+        },
+        theme: {
+          color: '#16a34a'
+        },
+        handler: async function (response: any) {
+          // Verify payment
+          try {
+            const verifyResponse = await fetch('/api/payment/verify', {
+              method: 'POST',
+              headers: { 'Content-Type': 'application/json' },
+              body: JSON.stringify({
+                razorpay_order_id: response.razorpay_order_id,
+                razorpay_payment_id: response.razorpay_payment_id,
+                razorpay_signature: response.razorpay_signature
+              })
+            });
+
+            const verifyData = await verifyResponse.json();
+
+            if (verifyData.success) {
+              // Payment verified, create order
+              const orderPayload = {
+                user_id: currentUser.id,
+                total,
+                subtotal,
+                deliveryFee,
+                items: cart,
+                paymentMethod: PaymentMethod.UPI,
+                shippingAddress,
+                deliverySlot: selectedDeliverySlot ? {
+                  date: selectedDeliverySlot.displayDate,
+                  time: selectedDeliverySlot.timeSlot,
+                  isExpress: selectedDeliverySlot.isExpress
+                } : null,
+                paymentId: response.razorpay_payment_id,
+                paymentOrderId: response.razorpay_order_id
+              };
+
+              await onSuccess(orderPayload);
+            } else {
+              setPaymentError('Payment verification failed. Please contact support.');
+            }
+          } catch (error) {
+            setPaymentError('Payment verification failed. Please contact support.');
+          }
+          setIsPaymentLoading(false);
+        },
+        modal: {
+          ondismiss: function () {
+            setIsPaymentLoading(false);
+          }
+        }
+      };
+
+      const razorpay = new window.Razorpay(options);
+      razorpay.open();
+
+    } catch (error: any) {
+      console.error('Payment error:', error);
+      setPaymentError(error.message || 'Payment failed. Please try again.');
+      setIsPaymentLoading(false);
+    }
   };
 
   const handlePlaceOrder = async () => {
@@ -500,17 +650,54 @@ export const Checkout: React.FC<CheckoutProps> = ({ cart, currentUser, onBack, o
               )}
 
               {paymentMethod === PaymentMethod.UPI && (
-                <div className="bg-gray-100 dark:bg-gray-700 p-4 sm:p-6 rounded-lg flex flex-col items-center justify-center space-y-3 sm:space-y-4">
-                  <div className="w-36 h-36 sm:w-48 sm:h-48 bg-white p-2 rounded-lg shadow-sm border border-gray-200 dark:border-gray-600">
-                    <img
-                      src={`https://api.qrserver.com/v1/create-qr-code/?size=200x200&data=upi://pay?pa=freshmart@upi&pn=FreshMart&am=${total}&tn=OrderPayment`}
-                      alt="UPI QR Code"
-                      className="w-full h-full"
-                    />
+                <div className="bg-gradient-to-br from-green-50 to-emerald-50 dark:from-gray-700 dark:to-gray-800 p-4 sm:p-6 rounded-xl border border-green-100 dark:border-gray-600">
+                  <div className="flex items-center justify-center space-x-2 mb-4">
+                    <Shield className="h-5 w-5 text-green-600" />
+                    <span className="text-sm font-medium text-green-700 dark:text-green-400">Secure Payment via Razorpay</span>
                   </div>
-                  <div className="text-center">
-                    <p className="text-xs sm:text-sm font-semibold text-gray-800 dark:text-white">Scan this QR Code</p>
-                    <p className="text-[10px] sm:text-xs text-gray-500 dark:text-gray-400">Generated for ₹{total} payment</p>
+
+                  {paymentError && (
+                    <div className="mb-4 p-3 bg-red-50 dark:bg-red-900/30 border border-red-200 dark:border-red-800 rounded-lg">
+                      <p className="text-sm text-red-600 dark:text-red-400 flex items-center">
+                        <AlertCircle className="h-4 w-4 mr-2" />
+                        {paymentError}
+                      </p>
+                    </div>
+                  )}
+
+                  <div className="text-center space-y-4">
+                    <div className="bg-white dark:bg-gray-700 p-4 rounded-lg shadow-sm">
+                      <p className="text-2xl font-bold text-gray-900 dark:text-white">₹{total.toFixed(2)}</p>
+                      <p className="text-xs text-gray-500 dark:text-gray-400 mt-1">Total Amount</p>
+                    </div>
+
+                    <button
+                      onClick={initiateRazorpayPayment}
+                      disabled={isPaymentLoading || !razorpayLoaded}
+                      className="w-full bg-green-600 text-white py-3 rounded-lg font-bold hover:bg-green-700 transition-colors shadow-lg disabled:opacity-50 disabled:cursor-not-allowed flex items-center justify-center space-x-2"
+                    >
+                      {isPaymentLoading ? (
+                        <>
+                          <Loader2 className="h-5 w-5 animate-spin" />
+                          <span>Processing...</span>
+                        </>
+                      ) : (
+                        <>
+                          <Smartphone className="h-5 w-5" />
+                          <span>Pay Now</span>
+                        </>
+                      )}
+                    </button>
+
+                    <div className="flex items-center justify-center space-x-4 text-xs text-gray-500 dark:text-gray-400">
+                      <span>UPI</span>
+                      <span>•</span>
+                      <span>Cards</span>
+                      <span>•</span>
+                      <span>Net Banking</span>
+                      <span>•</span>
+                      <span>Wallets</span>
+                    </div>
                   </div>
                 </div>
               )}

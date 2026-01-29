@@ -2,7 +2,7 @@
 
 import React, { useState, useEffect } from 'react';
 import { User, Address, Order, CartItem } from '../types';
-import { User as UserIcon, MapPin, Package, Trash2, Plus, Clock, CheckCircle, XCircle, Bell, RefreshCw } from 'lucide-react';
+import { User as UserIcon, MapPin, Package, Trash2, Plus, Clock, CheckCircle, XCircle, Bell, RefreshCw, Truck, Eye } from 'lucide-react';
 import { api } from '../lib/api';
 import { toast } from 'react-toastify';
 
@@ -10,9 +10,10 @@ interface UserProfileProps {
   user: User;
   onUpdateUser: (user: User) => void;
   onReorder?: (items: CartItem[]) => void;
+  onTrackOrder?: (orderId: string) => void;
 }
 
-export const UserProfile: React.FC<UserProfileProps> = ({ user, onUpdateUser, onReorder }) => {
+export const UserProfile: React.FC<UserProfileProps> = ({ user, onUpdateUser, onReorder, onTrackOrder }) => {
   const [activeTab, setActiveTab] = useState<'profile' | 'orders' | 'notifications'>('profile');
   const [notifications, setNotifications] = useState<Array<{ id: string; message: string; read: number; created_at: string }>>([]);
   const [notifLoading, setNotifLoading] = useState(false);
@@ -111,18 +112,40 @@ export const UserProfile: React.FC<UserProfileProps> = ({ user, onUpdateUser, on
 
   const getStatusColor = (status: string) => {
     switch (status) {
-      case 'completed': return 'text-green-600 bg-green-50';
-      case 'cancelled': return 'text-red-600 bg-red-50';
-      default: return 'text-orange-600 bg-orange-50';
+      case 'delivered':
+      case 'completed': return 'text-green-600 bg-green-50 dark:text-green-400 dark:bg-green-900/30';
+      case 'cancelled': return 'text-red-600 bg-red-50 dark:text-red-400 dark:bg-red-900/30';
+      case 'shipped':
+      case 'out_for_delivery': return 'text-blue-600 bg-blue-50 dark:text-blue-400 dark:bg-blue-900/30';
+      case 'confirmed':
+      case 'processing': return 'text-indigo-600 bg-indigo-50 dark:text-indigo-400 dark:bg-indigo-900/30';
+      default: return 'text-orange-600 bg-orange-50 dark:text-orange-400 dark:bg-orange-900/30';
     }
   };
 
   const getStatusIcon = (status: string) => {
     switch (status) {
+      case 'delivered':
       case 'completed': return <CheckCircle className="h-4 w-4" />;
       case 'cancelled': return <XCircle className="h-4 w-4" />;
+      case 'shipped':
+      case 'out_for_delivery': return <Truck className="h-4 w-4" />;
       default: return <Clock className="h-4 w-4" />;
     }
+  };
+
+  const getStatusLabel = (status: string) => {
+    const labels: Record<string, string> = {
+      pending: 'Pending',
+      confirmed: 'Confirmed',
+      processing: 'Processing',
+      shipped: 'Shipped',
+      out_for_delivery: 'Out for Delivery',
+      delivered: 'Delivered',
+      completed: 'Completed',
+      cancelled: 'Cancelled',
+    };
+    return labels[status] || status;
   };
 
   const handleReorder = (order: Order) => {
@@ -133,7 +156,7 @@ export const UserProfile: React.FC<UserProfileProps> = ({ user, onUpdateUser, on
   };
 
   return (
-    <div className="max-w-7xl mx-auto px-3 sm:px-6 lg:px-8 py-4 sm:py-8">
+    <div className="w-full px-3 sm:px-4 md:px-6 lg:px-8 py-4 sm:py-6">
       <div className="flex flex-col md:flex-row gap-4 sm:gap-8">
 
         {/* Sidebar - horizontal tabs on mobile, vertical on desktop */}
@@ -312,9 +335,20 @@ export const UserProfile: React.FC<UserProfileProps> = ({ user, onUpdateUser, on
                           <p className="font-bold text-gray-900 text-sm sm:text-base">Order #{order.id}</p>
                           <p className="text-xs sm:text-sm text-gray-500">{new Date(order.date).toLocaleDateString()} at {new Date(order.date).toLocaleTimeString()}</p>
                         </div>
-                        <div className={`inline-flex items-center space-x-1 px-2 sm:px-3 py-1 rounded-full text-[10px] sm:text-xs font-semibold w-fit ${getStatusColor(order.status)}`}>
-                          {getStatusIcon(order.status)}
-                          <span className="uppercase">{order.status}</span>
+                        <div className="flex items-center gap-2">
+                          <div className={`inline-flex items-center space-x-1 px-2 sm:px-3 py-1 rounded-full text-[10px] sm:text-xs font-semibold w-fit ${getStatusColor(order.status)}`}>
+                            {getStatusIcon(order.status)}
+                            <span className="uppercase">{getStatusLabel(order.status)}</span>
+                          </div>
+                          {onTrackOrder && order.status !== 'cancelled' && (
+                            <button
+                              onClick={() => onTrackOrder(order.id)}
+                              className="inline-flex items-center space-x-1 px-2 py-1 rounded-lg text-[10px] sm:text-xs font-medium text-blue-600 dark:text-blue-400 hover:bg-blue-50 dark:hover:bg-blue-900/20 transition-colors"
+                            >
+                              <Eye className="h-3.5 w-3.5" />
+                              <span>Track</span>
+                            </button>
+                          )}
                         </div>
                       </div>
 
@@ -331,7 +365,7 @@ export const UserProfile: React.FC<UserProfileProps> = ({ user, onUpdateUser, on
                         <span className="text-xs sm:text-sm text-gray-500">Paid via {order.paymentMethod === 'cod' ? 'Cash' : 'UPI'}</span>
                         <div className="flex items-center gap-3">
                           <span className="text-base sm:text-lg font-bold text-gray-900">Total: ₹{order.total}</span>
-                          {onReorder && order.status === 'completed' && (
+                          {onReorder && (order.status === 'completed' || order.status === 'delivered') && (
                             <button
                               onClick={() => handleReorder(order)}
                               className="flex items-center space-x-1.5 bg-green-600 text-white px-3 py-1.5 rounded-lg hover:bg-green-700 transition-colors text-xs sm:text-sm font-medium"

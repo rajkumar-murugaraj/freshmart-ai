@@ -465,6 +465,67 @@ const server = http.createServer(app);
 // io will be assigned after server is created so createNotification can emit
 let io = null;
 
+// Socket bridge endpoint - allows Next.js API routes to emit socket events
+app.post('/api/socket/emit', (req, res) => {
+  const { event, data } = req.body;
+  if (!event) {
+    return res.status(400).json({ error: 'Event name required' });
+  }
+  if (io) {
+    io.emit(event, data);
+    console.log(`Socket event emitted: ${event}`, data);
+    res.json({ success: true, event });
+  } else {
+    res.status(503).json({ error: 'Socket.IO not initialized' });
+  }
+});
+
+// Socket bridge for order notifications specifically
+app.post('/api/socket/order-notification', (req, res) => {
+  const { orderId, customerName, total, userId } = req.body;
+  if (io) {
+    // Emit to admin listeners
+    io.emit('new_order', { orderId, customerName, total, userId, timestamp: new Date().toISOString() });
+    // Also emit as notification for backward compatibility
+    io.emit('notification', {
+      type: 'new_order',
+      message: `New order #${orderId} from ${customerName} - ₹${total}`,
+      orderId,
+      timestamp: new Date().toISOString()
+    });
+    console.log(`Order notification emitted for order #${orderId}`);
+    res.json({ success: true });
+  } else {
+    res.status(503).json({ error: 'Socket.IO not initialized' });
+  }
+});
+
+// Socket bridge for stock update events
+app.post('/api/socket/stock-update', (req, res) => {
+  const { productId, productName, oldStock, newStock, type } = req.body;
+  if (io) {
+    const data = { productId, productName, oldStock, newStock, type, timestamp: new Date().toISOString() };
+    io.emit('stock_update', data);
+    console.log(`Stock update event emitted for product #${productId} (${productName}):`, data);
+    res.json({ success: true });
+  } else {
+    res.status(503).json({ error: 'Socket.IO not initialized' });
+  }
+});
+
+// Socket bridge for order status update events
+app.post('/api/socket/order-status', (req, res) => {
+  const { orderId, status, note, userId } = req.body;
+  if (io) {
+    const data = { orderId, status, note, userId, timestamp: new Date().toISOString() };
+    io.emit('order_status_update', data);
+    console.log(`Order status update event emitted for order #${orderId}: ${status}`);
+    res.json({ success: true });
+  } else {
+    res.status(503).json({ error: 'Socket.IO not initialized' });
+  }
+});
+
 server.listen(PORT, () => {
   console.log(`✅ Backend Server running on http://localhost:${PORT}`);
   try {

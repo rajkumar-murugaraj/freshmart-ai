@@ -11,6 +11,7 @@ interface ProductCarouselProps {
   subtitle?: string;
   type: 'offers' | 'trending' | 'new' | 'featured';
   onAddToCart: (product: Product) => void;
+  onProductClick?: (product: Product) => void;
   autoPlay?: boolean;
   autoPlayInterval?: number;
 }
@@ -35,6 +36,7 @@ export const ProductCarousel: React.FC<ProductCarouselProps> = ({
   subtitle,
   type,
   onAddToCart,
+  onProductClick,
   autoPlay = true,
   autoPlayInterval = 4000
 }) => {
@@ -145,6 +147,7 @@ export const ProductCarousel: React.FC<ProductCarouselProps> = ({
                 product={product}
                 isAdmin={false}
                 onAddToCart={onAddToCart}
+                onProductClick={onProductClick}
               />
             </div>
           ))}

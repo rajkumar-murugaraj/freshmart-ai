@@ -2,7 +2,7 @@ import { NextRequest, NextResponse } from 'next/server';
 import db from '@/lib/db';
 import bcrypt from 'bcryptjs';
 import { loginSchema, validateData } from '@/lib/validations';
-import { createToken, setAuthCookie } from '@/lib/auth';
+import { createTokenPair, setAuthCookies } from '@/lib/auth';
 import { rateLimit } from '@/lib/rate-limit';
 
 export async function POST(request: NextRequest) {
@@ -58,8 +58,8 @@ export async function POST(request: NextRequest) {
       addresses = [];
     }
 
-    // Create JWT token
-    const token = await createToken({
+    // Create JWT token pair (access + refresh)
+    const tokens = await createTokenPair({
       userId: String(user.id),
       email: user.email,
       role: user.role,
@@ -73,12 +73,14 @@ export async function POST(request: NextRequest) {
       id: String(user.id),
       addresses,
       orders: [],
-      token, // Include token for client-side storage as backup
+      accessToken: tokens.accessToken,
+      expiresIn: tokens.expiresIn,
+      refreshExpiresIn: tokens.refreshExpiresIn,
     };
 
-    // Set httpOnly cookie with token
+    // Set httpOnly cookies with tokens
     const res = NextResponse.json(responseData);
-    return setAuthCookie(res, token);
+    return setAuthCookies(res, tokens);
   } catch (error) {
     console.error('Login error:', error);
     return NextResponse.json(

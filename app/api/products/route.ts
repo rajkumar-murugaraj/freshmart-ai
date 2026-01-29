@@ -1,7 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server';
 import db from '@/lib/db';
 import { rateLimit } from '@/lib/rate-limit';
-import { getCurrentUser } from '@/lib/auth';
 import { productSchema, validateData } from '@/lib/validations';
 
 // GET all products - with caching headers
@@ -13,7 +12,7 @@ export async function GET(request: NextRequest) {
     const products = db.prepare('SELECT * FROM products ORDER BY created_at DESC').all();
 
     // Convert id to string for frontend compatibility
-    const formattedProducts = products.map((p: any) => ({
+    const formattedProducts = (products as any[]).map((p: any) => ({
       ...p,
       id: String(p.id)
     }));
@@ -31,19 +30,10 @@ export async function GET(request: NextRequest) {
   }
 }
 
-// POST new product - Admin only
+// POST new product - Admin only (auth handled by middleware)
 export async function POST(request: NextRequest) {
   const { success, response } = await rateLimit(request, 'write');
   if (!success && response) return response;
-
-  // Check admin authentication
-  const user = await getCurrentUser(request);
-  if (!user || user.role !== 'admin') {
-    return NextResponse.json(
-      { error: 'Unauthorized - Admin access required' },
-      { status: 403 }
-    );
-  }
 
   try {
     const body = await request.json();
@@ -58,34 +48,48 @@ export async function POST(request: NextRequest) {
     }
 
     const { name, price, category, image, description, unit, stock, min_stock } = validation.data;
+    const cost_price = body.cost_price !== undefined ? body.cost_price : Math.round(price * 0.8 * 100) / 100;
 
     const initialStock = stock !== undefined ? stock : 50;
     const initialMinStock = min_stock !== undefined ? min_stock : 10;
+    const variant_group = body.variant_group || null;
+    const variant_type = body.variant_type || null;
+    const variant_value = body.variant_value || null;
 
     const result = db.prepare(`
-      INSERT INTO products (name, price, category, image, description, unit, stock, min_stock)
-      VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+      INSERT INTO products (name, price, cost_price, category, image, description, unit, stock, min_stock, variant_group, variant_type, variant_value)
+      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
     `).run(
       name,
       price,
+      cost_price,
       category,
       image || 'https://picsum.photos/400/300',
       description || '',
       unit || 'kg',
       initialStock,
-      initialMinStock
+      initialMinStock,
+      variant_group,
+      variant_type,
+      variant_value
     );
 
+    const productId = result.lastInsertRowid;
+
     return NextResponse.json({
-      id: String(result.lastInsertRowid),
+      id: String(productId),
       name,
       price,
+      cost_price,
       category,
       image: image || 'https://picsum.photos/400/300',
       description: description || '',
       unit: unit || 'kg',
       stock: initialStock,
-      min_stock: initialMinStock
+      min_stock: initialMinStock,
+      variant_group,
+      variant_type,
+      variant_value
     });
   } catch (error) {
     console.error('Add product error:', error);

@@ -53,3 +53,10 @@ freshmart.db
 # Logs
 logs
 *.log
+
+# Windows artifacts
+nul
+
+# Uploaded files
+public/uploads/products/*
+!public/uploads/products/.gitkeep

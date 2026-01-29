@@ -1,7 +1,7 @@
 'use client';
 
 import React from 'react';
-import { X, Heart, ShoppingCart, Trash2 } from 'lucide-react';
+import { X, Heart, ShoppingCart, Trash2, TrendingDown } from 'lucide-react';
 import { Product } from '../types';
 import { useWishlist } from '../context/WishlistContext';
 
@@ -16,7 +16,7 @@ export const WishlistDrawer: React.FC<WishlistDrawerProps> = ({
   onClose,
   onAddToCart
 }) => {
-  const { wishlist, removeFromWishlist, clearWishlist } = useWishlist();
+  const { wishlist, removeFromWishlist, clearWishlist, priceDropCount } = useWishlist();
 
   const handleAddToCart = (product: Product) => {
     onAddToCart(product);
@@ -61,6 +61,14 @@ export const WishlistDrawer: React.FC<WishlistDrawerProps> = ({
             <X className="h-5 w-5" />
           </button>
         </div>
+
+        {/* Price Drop Banner */}
+        {priceDropCount > 0 && (
+          <div className="mx-4 mt-2 p-2 bg-green-50 dark:bg-green-900/20 border border-green-200 dark:border-green-800 rounded-lg text-sm text-green-700 dark:text-green-400 flex items-center gap-2">
+            <TrendingDown className="h-4 w-4" />
+            <span>{priceDropCount} item{priceDropCount > 1 ? 's' : ''} with price drops!</span>
+          </div>
+        )}
 
         {/* Content */}
         <div className="flex-1 overflow-y-auto p-4" style={{ maxHeight: 'calc(100vh - 180px)' }}>

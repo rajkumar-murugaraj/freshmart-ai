@@ -12,7 +12,9 @@ interface ProductCardProps {
   onEdit?: (product: Product) => void;
   onDelete?: (id: string) => void;
   onQuickView?: (product: Product) => void;
+  onProductClick?: (product: Product) => void;
   showWishlist?: boolean;
+  variantCount?: number;
 }
 
 export const ProductCard: React.FC<ProductCardProps> = ({
@@ -22,10 +24,15 @@ export const ProductCard: React.FC<ProductCardProps> = ({
   onEdit,
   onDelete,
   onQuickView,
-  showWishlist = true
+  onProductClick,
+  showWishlist = true,
+  variantCount
 }) => {
   return (
-    <div className="bg-white dark:bg-gray-800 rounded-lg sm:rounded-xl shadow-sm border border-gray-100 dark:border-gray-700 overflow-hidden hover:shadow-md transition-all duration-300 flex flex-col h-full">
+    <div
+      className={`bg-white dark:bg-gray-800 rounded-lg sm:rounded-xl shadow-sm border border-gray-100 dark:border-gray-700 overflow-hidden hover:shadow-md transition-all duration-300 flex flex-col h-full ${onProductClick ? 'cursor-pointer' : ''}`}
+      onClick={() => onProductClick?.(product)}
+    >
       <div className="relative h-32 sm:h-48 w-full bg-gray-100 dark:bg-gray-700 overflow-hidden group">
         <img
           src={product.image}
@@ -37,6 +44,16 @@ export const ProductCard: React.FC<ProductCardProps> = ({
             {product.category}
           </span>
         )}
+        {/* Variant badge - admin shows count, shop shows type:value */}
+        {isAdmin && variantCount && variantCount > 1 ? (
+          <span className="absolute bottom-1.5 left-1.5 sm:bottom-2 sm:left-2 bg-purple-600/90 backdrop-blur-sm text-white text-[10px] sm:text-xs font-bold px-1.5 sm:px-2 py-0.5 sm:py-1 rounded">
+            {variantCount} variants
+          </span>
+        ) : !isAdmin && product.variant_group && product.variant_type ? (
+          <span className="absolute bottom-1.5 left-1.5 sm:bottom-2 sm:left-2 bg-purple-600/90 backdrop-blur-sm text-white text-[10px] sm:text-xs font-semibold px-1.5 sm:px-2 py-0.5 sm:py-1 rounded">
+            {product.variant_type}: {product.variant_value}
+          </span>
+        ) : null}
         {/* Wishlist & Quick View Buttons */}
         {!isAdmin && (
           <div className="absolute top-1.5 right-1.5 sm:top-2 sm:right-2 flex flex-col gap-1.5 opacity-0 group-hover:opacity-100 transition-opacity duration-200">
@@ -96,7 +113,7 @@ export const ProductCard: React.FC<ProductCardProps> = ({
             </div>
           ) : (
             <button
-              onClick={() => onAddToCart?.(product)}
+              onClick={(e) => { e.stopPropagation(); onAddToCart?.(product); }}
               disabled={(product as any).stock === 0}
               className={`w-full flex items-center justify-center space-x-1 sm:space-x-2 py-2 sm:py-2.5 rounded-lg transition-colors font-medium text-xs sm:text-base ${
                 (product as any).stock === 0

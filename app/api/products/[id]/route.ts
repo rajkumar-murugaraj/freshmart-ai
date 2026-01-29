@@ -29,15 +29,16 @@ export async function GET(
   }
 }
 
-// PUT update product
+// PUT update product - Admin only (auth handled by middleware)
 export async function PUT(
   request: NextRequest,
   { params }: { params: { id: string } }
 ) {
   try {
-    const { name, price, category, image, description, unit } = await request.json();
+    const body = await request.json();
+    const { name, price, cost_price, category, image, description, unit } = body;
 
-    const existing = db.prepare('SELECT id FROM products WHERE id = ?').get(params.id);
+    const existing = db.prepare('SELECT * FROM products WHERE id = ?').get(params.id) as any;
     if (!existing) {
       return NextResponse.json(
         { error: 'Product not found' },
@@ -45,20 +46,30 @@ export async function PUT(
       );
     }
 
+    // If cost_price not provided, calculate default as 80% of price
+    const finalCostPrice = cost_price !== undefined ? cost_price : Math.round(price * 0.8 * 100) / 100;
+    const variant_group = body.variant_group !== undefined ? (body.variant_group || null) : existing.variant_group;
+    const variant_type = body.variant_type !== undefined ? (body.variant_type || null) : existing.variant_type;
+    const variant_value = body.variant_value !== undefined ? (body.variant_value || null) : existing.variant_value;
+
     db.prepare(`
       UPDATE products
-      SET name = ?, price = ?, category = ?, image = ?, description = ?, unit = ?
+      SET name = ?, price = ?, cost_price = ?, category = ?, image = ?, description = ?, unit = ?, variant_group = ?, variant_type = ?, variant_value = ?
       WHERE id = ?
-    `).run(name, price, category, image, description, unit, params.id);
+    `).run(name, price, finalCostPrice, category, image, description, unit, variant_group, variant_type, variant_value, params.id);
 
     return NextResponse.json({
       id: params.id,
       name,
       price,
+      cost_price: finalCostPrice,
       category,
       image,
       description,
-      unit
+      unit,
+      variant_group,
+      variant_type,
+      variant_value
     });
   } catch (error) {
     console.error('Update product error:', error);
@@ -69,7 +80,7 @@ export async function PUT(
   }
 }
 
-// DELETE product
+// DELETE product - Admin only (auth handled by middleware)
 export async function DELETE(
   request: NextRequest,
   { params }: { params: { id: string } }

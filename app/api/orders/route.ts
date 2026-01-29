@@ -16,22 +16,56 @@ export async function GET(request: NextRequest) {
     const userId = searchParams.get('userId');
     const isAdmin = searchParams.get('isAdmin') === 'true';
 
+    // Pagination parameters
+    const page = Math.max(1, parseInt(searchParams.get('page') || '1'));
+    const limit = Math.min(100, Math.max(1, parseInt(searchParams.get('limit') || '20')));
+    const offset = (page - 1) * limit;
+
+    // Status filter for admin
+    const statusFilter = searchParams.get('status');
+
     let orders: any[] = [];
+    let totalCount = 0;
+
     if (isAdmin) {
-      // Admin gets all orders with user info
+      // Build query with optional status filter
+      let whereClause = '';
+      const params: any[] = [];
+
+      if (statusFilter && statusFilter !== 'all') {
+        whereClause = 'WHERE o.status = ?';
+        params.push(statusFilter);
+      }
+
+      // Get total count for pagination
+      const countResult = db.prepare(`
+        SELECT COUNT(*) as count FROM orders o ${whereClause}
+      `).get(...params) as { count: number };
+      totalCount = countResult.count;
+
+      // Admin gets paginated orders with user info
       orders = db.prepare(`
         SELECT o.*, u.name as user_name, u.email as user_email, u.phone as user_phone
         FROM orders o
         LEFT JOIN users u ON o.user_id = u.id
+        ${whereClause}
         ORDER BY o.created_at DESC
-      `).all();
+        LIMIT ? OFFSET ?
+      `).all(...params, limit, offset);
     } else if (userId && userId !== '0') {
-      // User gets only their orders
+      // Get total count for user's orders
+      const countResult = db.prepare(`
+        SELECT COUNT(*) as count FROM orders WHERE user_id = ?
+      `).get(userId) as { count: number };
+      totalCount = countResult.count;
+
+      // User gets only their orders (paginated)
       orders = db.prepare(`
-        SELECT * FROM orders WHERE user_id = ? ORDER BY created_at DESC
-      `).all(userId);
+        SELECT * FROM orders WHERE user_id = ? ORDER BY created_at DESC LIMIT ? OFFSET ?
+      `).all(userId, limit, offset);
     } else {
       orders = [];
+      totalCount = 0;
     }
 
     // Fetch items for each order
@@ -61,7 +95,17 @@ export async function GET(request: NextRequest) {
       };
     });
 
-    return NextResponse.json(formattedOrders);
+    // Return paginated response with metadata
+    return NextResponse.json({
+      orders: formattedOrders,
+      pagination: {
+        page,
+        limit,
+        totalCount,
+        totalPages: Math.ceil(totalCount / limit),
+        hasMore: page * limit < totalCount
+      }
+    });
   } catch (error) {
     console.error('Get orders error:', error);
     return NextResponse.json(
@@ -125,6 +169,12 @@ export async function POST(request: NextRequest) {
     );
 
     const orderId = orderResult.lastInsertRowid;
+
+    // Record initial status in history
+    db.prepare(`
+      INSERT INTO order_status_history (order_id, status, note, created_by)
+      VALUES (?, 'pending', 'Order placed', ?)
+    `).run(orderId, user_id);
 
     // Insert order items
     const insertItem = db.prepare(`
@@ -190,6 +240,24 @@ export async function POST(request: NextRequest) {
     const adminPhone = process.env.ADMIN_PHONE;
     if (adminPhone) {
       await sendSMS(adminPhone, smsTemplates.adminNewOrder(String(orderId), shippingAddress.name, total));
+    }
+
+    // Emit real-time socket notification to admin panel
+    try {
+      const socketServerUrl = process.env.SOCKET_SERVER_URL || 'http://localhost:3001';
+      await fetch(`${socketServerUrl}/api/socket/order-notification`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          orderId: String(orderId),
+          customerName: shippingAddress.name,
+          total,
+          userId: user_id
+        })
+      });
+    } catch (socketError) {
+      // Don't fail the order if socket notification fails
+      console.error('Socket notification error:', socketError);
     }
 
     return NextResponse.json({

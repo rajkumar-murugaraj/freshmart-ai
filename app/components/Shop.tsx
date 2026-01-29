@@ -7,14 +7,16 @@ import { SearchX } from 'lucide-react';
 import { SmartSearch, SearchFilters } from './SmartSearch';
 import { ProductCarousel } from './ProductCarousel';
 import { QuickViewModal } from './QuickViewModal';
+import Fuse from 'fuse.js';
 
 interface ShopProps {
   products: Product[];
   onAddToCart: (product: Product) => void;
   searchQuery: string;
+  onProductClick?: (product: Product) => void;
 }
 
-export const Shop: React.FC<ShopProps> = ({ products, onAddToCart, searchQuery: externalSearchQuery }) => {
+export const Shop: React.FC<ShopProps> = ({ products, onAddToCart, searchQuery: externalSearchQuery, onProductClick }) => {
   const [internalSearchQuery, setInternalSearchQuery] = useState('');
   const [filters, setFilters] = useState<SearchFilters>({
     category: 'All',
@@ -59,6 +61,15 @@ export const Shop: React.FC<ShopProps> = ({ products, onAddToCart, searchQuery: 
     setIsQuickViewOpen(false);
   }, []);
 
+  // Handle voice shopping - add multiple items to cart
+  const handleVoiceAddToCart = useCallback((items: Array<{ product: Product; quantity: number }>) => {
+    items.forEach(item => {
+      for (let i = 0; i < item.quantity; i++) {
+        onAddToCart(item.product);
+      }
+    });
+  }, [onAddToCart]);
+
   // Carousel products - only show when not searching/filtering
   const showCarousels = !activeSearchQuery && filters.category === 'All';
 
@@ -77,6 +88,23 @@ export const Shop: React.FC<ShopProps> = ({ products, onAddToCart, searchQuery: 
     return products.slice(0, 8);
   }, [products]);
 
+  // Initialize Fuse.js for fuzzy search
+  const fuse = useMemo(() => {
+    return new Fuse(products, {
+      keys: [
+        { name: 'name', weight: 0.5 },
+        { name: 'category', weight: 0.3 },
+        { name: 'description', weight: 0.2 }
+      ],
+      threshold: 0.4, // Lower = more strict, higher = more fuzzy
+      distance: 100,
+      minMatchCharLength: 2,
+      includeScore: true,
+      ignoreLocation: true,
+      findAllMatches: true
+    });
+  }, [products]);
+
   const filteredProducts = useMemo(() => {
     let result = products;
 
@@ -85,14 +113,26 @@ export const Shop: React.FC<ShopProps> = ({ products, onAddToCart, searchQuery: 
       result = result.filter(p => p.category === filters.category);
     }
 
-    // Search query filter
+    // Search query filter with fuzzy matching
     if (activeSearchQuery && activeSearchQuery.trim() !== '') {
-      const q = activeSearchQuery.toLowerCase().trim();
-      result = result.filter(p =>
-        p.name.toLowerCase().includes(q) ||
-        p.description.toLowerCase().includes(q) ||
-        p.category.toLowerCase().includes(q)
-      );
+      const query = activeSearchQuery.trim();
+
+      // Use Fuse.js for fuzzy search
+      const fuseResults = fuse.search(query);
+      const matchedIds = new Set(fuseResults.map(r => r.item.id));
+
+      // Filter to only include fuzzy matched products
+      result = result.filter(p => matchedIds.has(p.id));
+
+      // Sort by fuzzy search score (best matches first) if sorting by relevance
+      if (filters.sortBy === 'relevance') {
+        const scoreMap = new Map(fuseResults.map(r => [r.item.id, r.score || 0]));
+        result = [...result].sort((a, b) => {
+          const scoreA = scoreMap.get(a.id) ?? 1;
+          const scoreB = scoreMap.get(b.id) ?? 1;
+          return scoreA - scoreB; // Lower score = better match
+        });
+      }
     }
 
     // Price range filter
@@ -105,24 +145,25 @@ export const Shop: React.FC<ShopProps> = ({ products, onAddToCart, searchQuery: 
       result = result.filter(p => (p as any).stock === undefined || (p as any).stock > 0);
     }
 
-    // Sorting
-    switch (filters.sortBy) {
-      case 'price_low':
-        result = [...result].sort((a, b) => a.price - b.price);
-        break;
-      case 'price_high':
-        result = [...result].sort((a, b) => b.price - a.price);
-        break;
-      case 'name':
-        result = [...result].sort((a, b) => a.name.localeCompare(b.name));
-        break;
-      default:
-        // relevance - keep original order
-        break;
+    // Sorting (skip if already sorted by relevance with search)
+    if (!(activeSearchQuery && filters.sortBy === 'relevance')) {
+      switch (filters.sortBy) {
+        case 'price_low':
+          result = [...result].sort((a, b) => a.price - b.price);
+          break;
+        case 'price_high':
+          result = [...result].sort((a, b) => b.price - a.price);
+          break;
+        case 'name':
+          result = [...result].sort((a, b) => a.name.localeCompare(b.name));
+          break;
+        default:
+          break;
+      }
     }
 
     return result;
-  }, [products, filters, activeSearchQuery]);
+  }, [products, filters, activeSearchQuery, fuse]);
 
   // Navigate to next/prev product in quick view
   const quickViewIndex = quickViewProduct ? filteredProducts.findIndex(p => p.id === quickViewProduct.id) : -1;
@@ -140,7 +181,7 @@ export const Shop: React.FC<ShopProps> = ({ products, onAddToCart, searchQuery: 
   }, [quickViewIndex, filteredProducts]);
 
   return (
-    <div className="max-w-7xl mx-auto px-3 sm:px-6 lg:px-8 py-4 sm:py-8">
+    <div className="w-full px-3 sm:px-4 md:px-6 lg:px-8 py-4 sm:py-6">
       {/* Smart Search */}
       <div className="mb-6">
         <SmartSearch
@@ -148,6 +189,7 @@ export const Shop: React.FC<ShopProps> = ({ products, onAddToCart, searchQuery: 
           onSearch={handleSearch}
           onFilterChange={handleFilterChange}
           onProductSelect={handleProductSelect}
+          onVoiceAddToCart={handleVoiceAddToCart}
         />
       </div>
 
@@ -178,6 +220,7 @@ export const Shop: React.FC<ShopProps> = ({ products, onAddToCart, searchQuery: 
               subtitle="Best deals under ₹100"
               type="offers"
               onAddToCart={onAddToCart}
+              onProductClick={onProductClick}
             />
           )}
 
@@ -188,6 +231,7 @@ export const Shop: React.FC<ShopProps> = ({ products, onAddToCart, searchQuery: 
               subtitle="Most popular this week"
               type="trending"
               onAddToCart={onAddToCart}
+              onProductClick={onProductClick}
             />
           )}
 
@@ -198,6 +242,7 @@ export const Shop: React.FC<ShopProps> = ({ products, onAddToCart, searchQuery: 
               subtitle="Fresh additions to our store"
               type="new"
               onAddToCart={onAddToCart}
+              onProductClick={onProductClick}
             />
           )}
         </>
@@ -216,7 +261,7 @@ export const Shop: React.FC<ShopProps> = ({ products, onAddToCart, searchQuery: 
       )}
 
       {filteredProducts.length > 0 ? (
-        <div className="grid grid-cols-2 sm:grid-cols-2 md:grid-cols-3 lg:grid-cols-4 gap-3 sm:gap-6">
+        <div className="grid grid-cols-2 xs:grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-5 xl:grid-cols-6 2xl:grid-cols-7 gap-2 sm:gap-3 lg:gap-4">
           {filteredProducts.map(product => (
             <div
               key={product.id}
@@ -232,6 +277,7 @@ export const Shop: React.FC<ShopProps> = ({ products, onAddToCart, searchQuery: 
                 isAdmin={false}
                 onAddToCart={onAddToCart}
                 onQuickView={handleQuickView}
+                onProductClick={onProductClick}
               />
             </div>
           ))}

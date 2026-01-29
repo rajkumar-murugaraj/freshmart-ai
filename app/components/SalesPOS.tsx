@@ -14,15 +14,19 @@ import {
   X,
   CheckCircle,
   Printer,
-  ChevronUp
+  ChevronUp,
+  Edit3,
+  AlertTriangle
 } from 'lucide-react';
 import { api } from '../lib/api';
-import { Product, User } from '../types';
+import { Product, User, CATEGORIES } from '../types';
 
 interface CartItem {
   id: string;
   name: string;
   price: number;
+  original_price: number;
+  cost_price: number;
   quantity: number;
   unit: string;
   stock: number;
@@ -44,17 +48,36 @@ export const SalesPOS: React.FC<SalesPOSProps> = ({ currentUser, onLogout }) => 
   const [processing, setProcessing] = useState(false);
   const [showMobileCart, setShowMobileCart] = useState(false);
   const [showProductDropdown, setShowProductDropdown] = useState(false);
+  const [selectedCategory, setSelectedCategory] = useState('All');
   const [selectedDropdownIndex, setSelectedDropdownIndex] = useState(0);
+  const [showEditOrder, setShowEditOrder] = useState(false);
+  const [editingItemId, setEditingItemId] = useState<string | null>(null);
+  const [editPrice, setEditPrice] = useState<string>('');
+  const [editQuantity, setEditQuantity] = useState<string>('');
+  const [priceError, setPriceError] = useState<string>('');
+  const [cashierName, setCashierName] = useState<string>('');
   const searchInputRef = useRef<HTMLInputElement>(null);
   const dropdownRef = useRef<HTMLDivElement>(null);
 
   useEffect(() => {
     fetchProducts();
+    // Load saved cashier name from localStorage
+    const savedCashier = localStorage.getItem('pos_cashier_name');
+    if (savedCashier) {
+      setCashierName(savedCashier);
+    }
     // Focus search on mount (desktop only)
     if (window.innerWidth >= 768) {
       searchInputRef.current?.focus();
     }
   }, []);
+
+  // Save cashier name to localStorage when it changes
+  useEffect(() => {
+    if (cashierName) {
+      localStorage.setItem('pos_cashier_name', cashierName);
+    }
+  }, [cashierName]);
 
   const fetchProducts = async () => {
     setLoading(true);
@@ -67,10 +90,13 @@ export const SalesPOS: React.FC<SalesPOSProps> = ({ currentUser, onLogout }) => 
     setLoading(false);
   };
 
-  const filteredProducts = products.filter(p =>
-    p.name.toLowerCase().includes(searchQuery.toLowerCase()) ||
-    p.category.toLowerCase().includes(searchQuery.toLowerCase())
-  );
+  const filteredProducts = products.filter(p => {
+    const matchesSearch = !searchQuery ||
+      p.name.toLowerCase().includes(searchQuery.toLowerCase()) ||
+      p.category.toLowerCase().includes(searchQuery.toLowerCase());
+    const matchesCategory = selectedCategory === 'All' || p.category === selectedCategory;
+    return matchesSearch && matchesCategory;
+  });
 
   const addToCart = (product: Product) => {
     const existing = cart.find(item => item.id === product.id);
@@ -89,10 +115,13 @@ export const SalesPOS: React.FC<SalesPOSProps> = ({ currentUser, onLogout }) => 
           : item
       ));
     } else {
+      const costPrice = (product as any).cost_price || Math.round(product.price * 0.8);
       setCart([...cart, {
         id: product.id,
         name: product.name,
         price: product.price,
+        original_price: product.price,
+        cost_price: costPrice,
         quantity: 1,
         unit: product.unit,
         stock: availableStock
@@ -118,6 +147,73 @@ export const SalesPOS: React.FC<SalesPOSProps> = ({ currentUser, onLogout }) => 
     setCart([]);
   };
 
+  const openEditOrder = () => {
+    setShowEditOrder(true);
+    setEditingItemId(null);
+    setEditPrice('');
+    setEditQuantity('');
+    setPriceError('');
+  };
+
+  const selectItemToEdit = (item: CartItem) => {
+    setEditingItemId(item.id);
+    setEditPrice(String(item.price));
+    setEditQuantity(String(item.quantity));
+    setPriceError('');
+  };
+
+  const getEditingItem = () => cart.find(item => item.id === editingItemId);
+
+  const handlePriceChange = (value: string) => {
+    setEditPrice(value);
+    const numValue = parseFloat(value);
+    const item = getEditingItem();
+    if (isNaN(numValue) || numValue <= 0) {
+      setPriceError('Enter a valid price');
+    } else if (item && numValue < item.cost_price) {
+      setPriceError(`Cannot sell below cost price (₹${item.cost_price})`);
+    } else {
+      setPriceError('');
+    }
+  };
+
+  const saveItemEdit = () => {
+    const item = getEditingItem();
+    if (!item || priceError) return;
+    const newPrice = parseFloat(editPrice);
+    const newQty = parseInt(editQuantity) || 0;
+
+    if (isNaN(newPrice) || newPrice < item.cost_price) return;
+    if (newQty <= 0) return;
+    if (newQty > item.stock) return;
+
+    setCart(cart.map(cartItem =>
+      cartItem.id === item.id
+        ? { ...cartItem, price: newPrice, quantity: newQty }
+        : cartItem
+    ));
+    // Reset for next item selection
+    setEditingItemId(null);
+    setEditPrice('');
+    setEditQuantity('');
+  };
+
+  const resetToOriginal = () => {
+    const item = getEditingItem();
+    if (!item) return;
+    setEditPrice(String(item.original_price));
+    setEditQuantity(String(item.quantity));
+    setPriceError('');
+  };
+
+  const closeEditOrder = () => {
+    setShowEditOrder(false);
+    setEditingItemId(null);
+    setEditPrice('');
+    setEditQuantity('');
+    setPriceError('');
+  };
+
   const subtotal = cart.reduce((sum, item) => sum + (item.price * item.quantity), 0);
   const tax = 0; // Can add tax calculation if needed
   const total = subtotal + tax;
@@ -131,6 +227,7 @@ export const SalesPOS: React.FC<SalesPOSProps> = ({ currentUser, onLogout }) => 
 
     setProcessing(true);
     try {
+      const billedBy = cashierName.trim() || currentUser?.name || 'Staff';
       const saleData = await api.createSale(
         cart.map(item => ({
           id: item.id,
@@ -139,14 +236,15 @@ export const SalesPOS: React.FC<SalesPOSProps> = ({ currentUser, onLogout }) => 
           quantity: item.quantity
         })),
         paymentMethod,
-        undefined // No customer ID for walk-in
+        undefined, // No customer ID for walk-in
+        billedBy
       );
 
       setLastSale({
         ...saleData.sale,
         items: cart,
         paymentMethod,
-        cashier: currentUser.name
+        cashier: billedBy
       });
       setShowReceipt(true);
       setCart([]);
@@ -231,12 +329,21 @@ export const SalesPOS: React.FC<SalesPOSProps> = ({ currentUser, onLogout }) => 
           </h2>
           <div className="flex items-center space-x-2">
             {cart.length > 0 && (
-              <button
-                onClick={clearCart}
-                className="text-xs sm:text-sm text-red-600 hover:text-red-800"
-              >
-                Clear
-              </button>
+              <>
+                <button
+                  onClick={openEditOrder}
+                  className="text-xs sm:text-sm text-blue-600 hover:text-blue-800 flex items-center"
+                >
+                  <Edit3 className="h-3 w-3 mr-1" />
+                  Edit
+                </button>
+                <button
+                  onClick={clearCart}
+                  className="text-xs sm:text-sm text-red-600 hover:text-red-800"
+                >
+                  Clear
+                </button>
+              </>
             )}
             {isMobile && (
               <button
@@ -261,32 +368,43 @@ export const SalesPOS: React.FC<SalesPOSProps> = ({ currentUser, onLogout }) => 
         ) : (
           <div className="space-y-2 sm:space-y-3">
             {cart.map(item => (
-              <div key={item.id} className="flex items-center bg-gray-50 rounded-lg p-2 sm:p-3">
-                <div className="flex-1 min-w-0">
-                  <p className="font-medium text-gray-900 truncate text-sm sm:text-base">{item.name}</p>
-                  <p className="text-xs sm:text-sm text-gray-500">₹{item.price} × {item.quantity}</p>
-                </div>
-                <div className="flex items-center space-x-1 sm:space-x-2 ml-2 sm:ml-3">
-                  <button
-                    onClick={() => updateQuantity(item.id, -1)}
-                    className="w-7 h-7 sm:w-8 sm:h-8 flex items-center justify-center bg-white border border-gray-300 rounded-lg hover:bg-gray-100"
-                  >
-                    <Minus className="h-3 w-3 sm:h-4 sm:w-4" />
-                  </button>
-                  <span className="w-6 sm:w-8 text-center font-medium text-sm sm:text-base">{item.quantity}</span>
-                  <button
-                    onClick={() => updateQuantity(item.id, 1)}
-                    disabled={item.quantity >= item.stock}
-                    className="w-7 h-7 sm:w-8 sm:h-8 flex items-center justify-center bg-white border border-gray-300 rounded-lg hover:bg-gray-100 disabled:opacity-50"
-                  >
-                    <Plus className="h-3 w-3 sm:h-4 sm:w-4" />
-                  </button>
-                  <button
-                    onClick={() => removeFromCart(item.id)}
-                    className="w-7 h-7 sm:w-8 sm:h-8 flex items-center justify-center text-red-500 hover:bg-red-50 rounded-lg"
-                  >
-                    <Trash2 className="h-3 w-3 sm:h-4 sm:w-4" />
-                  </button>
+              <div key={item.id} className="bg-gray-50 rounded-lg p-2 sm:p-3">
+                <div className="flex items-center">
+                  <div className="flex-1 min-w-0">
+                    <p className="font-medium text-gray-900 truncate text-sm sm:text-base">{item.name}</p>
+                    <div className="flex items-center space-x-2 text-xs sm:text-sm">
+                      <span className={item.price !== item.original_price ? 'text-green-600 font-medium' : 'text-gray-500'}>
+                        ₹{item.price}
+                      </span>
+                      {item.price !== item.original_price && (
+                        <span className="text-gray-400 line-through text-xs">₹{item.original_price}</span>
+                      )}
+                      <span className="text-gray-400">× {item.quantity}</span>
+                      <span className="text-gray-600 font-medium">= ₹{item.price * item.quantity}</span>
+                    </div>
+                  </div>
+                  <div className="flex items-center space-x-1 sm:space-x-2 ml-2 sm:ml-3">
+                    <button
+                      onClick={() => updateQuantity(item.id, -1)}
+                      className="w-7 h-7 sm:w-8 sm:h-8 flex items-center justify-center bg-white border border-gray-300 rounded-lg hover:bg-gray-100"
+                    >
+                      <Minus className="h-3 w-3 sm:h-4 sm:w-4" />
+                    </button>
+                    <span className="w-6 sm:w-8 text-center font-medium text-sm sm:text-base">{item.quantity}</span>
+                    <button
+                      onClick={() => updateQuantity(item.id, 1)}
+                      disabled={item.quantity >= item.stock}
+                      className="w-7 h-7 sm:w-8 sm:h-8 flex items-center justify-center bg-white border border-gray-300 rounded-lg hover:bg-gray-100 disabled:opacity-50"
+                    >
+                      <Plus className="h-3 w-3 sm:h-4 sm:w-4" />
+                    </button>
+                    <button
+                      onClick={() => removeFromCart(item.id)}
+                      className="w-7 h-7 sm:w-8 sm:h-8 flex items-center justify-center text-red-500 hover:bg-red-50 rounded-lg"
+                    >
+                      <Trash2 className="h-3 w-3 sm:h-4 sm:w-4" />
+                    </button>
+                  </div>
                 </div>
               </div>
             ))}
@@ -312,6 +430,18 @@ export const SalesPOS: React.FC<SalesPOSProps> = ({ currentUser, onLogout }) => 
             <span>Total</span>
             <span className="text-green-600">₹{total}</span>
           </div>
+        </div>
+
+        {/* Billed By / Cashier Name */}
+        <div>
+          <p className="text-xs sm:text-sm font-medium text-gray-700 mb-2">Billed By</p>
+          <input
+            type="text"
+            value={cashierName}
+            onChange={(e) => setCashierName(e.target.value)}
+            placeholder="Enter cashier name..."
+            className="w-full px-3 py-2 border border-gray-300 rounded-lg text-sm focus:ring-2 focus:ring-green-500 focus:outline-none"
+          />
         </div>
 
         {/* Payment Method */}
@@ -463,10 +593,35 @@ export const SalesPOS: React.FC<SalesPOSProps> = ({ currentUser, onLogout }) => 
             )}
           </div>
 
+          {/* Category Tabs */}
+          <div className="flex gap-1.5 sm:gap-2 mb-3 overflow-x-auto pb-1 scrollbar-hide">
+            {CATEGORIES.map(cat => {
+              const count = cat === 'All'
+                ? products.length
+                : products.filter(p => p.category === cat).length;
+              if (cat !== 'All' && count === 0) return null;
+              return (
+                <button
+                  key={cat}
+                  onClick={() => setSelectedCategory(cat)}
+                  className={`flex-shrink-0 px-3 sm:px-4 py-1.5 sm:py-2 rounded-lg text-xs sm:text-sm font-medium transition-colors ${
+                    selectedCategory === cat
+                      ? 'bg-green-600 text-white shadow-sm'
+                      : 'bg-white text-gray-600 border border-gray-200 hover:bg-gray-50'
+                  }`}
+                >
+                  {cat} <span className={`ml-1 ${selectedCategory === cat ? 'text-green-100' : 'text-gray-400'}`}>({count})</span>
+                </button>
+              );
+            })}
+          </div>
+
           {/* Products Grid */}
           <div className="flex-1 overflow-y-auto pb-20 md:pb-0">
             {loading ? (
               <div className="text-center py-12 text-gray-500 text-sm">Loading products...</div>
+            ) : filteredProducts.length === 0 ? (
+              <div className="text-center py-12 text-gray-400 text-sm">No products found</div>
             ) : (
               <div className="grid grid-cols-3 sm:grid-cols-4 md:grid-cols-4 lg:grid-cols-5 xl:grid-cols-6 gap-2 sm:gap-3">
                 {filteredProducts.map(product => {
@@ -608,6 +763,208 @@ export const SalesPOS: React.FC<SalesPOSProps> = ({ currentUser, onLogout }) => 
                 className="flex-1 bg-green-600 text-white py-2 sm:py-2.5 rounded-lg font-medium hover:bg-green-700 transition-colors text-sm"
               >
                 New Sale
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Edit Order Modal */}
+      {showEditOrder && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/50 backdrop-blur-sm">
+          <div className="bg-white rounded-xl shadow-xl w-full max-w-md overflow-hidden max-h-[90vh] flex flex-col">
+            <div className="px-4 sm:px-6 py-3 sm:py-4 border-b border-gray-100 flex justify-between items-center">
+              <h2 className="text-base sm:text-lg font-bold text-gray-900">Edit Order</h2>
+              <button onClick={closeEditOrder} className="text-gray-400 hover:text-gray-600">
+                <X className="h-5 w-5 sm:h-6 sm:w-6" />
+              </button>
+            </div>
+
+            <div className="flex-1 overflow-y-auto p-4 sm:p-6 space-y-4">
+              {/* Item List - Select which to edit */}
+              <div>
+                <label className="block text-sm font-medium text-gray-700 mb-2">Select Item to Edit</label>
+                <div className="space-y-2 max-h-40 overflow-y-auto">
+                  {cart.map(item => (
+                    <button
+                      key={item.id}
+                      onClick={() => selectItemToEdit(item)}
+                      className={`w-full text-left p-3 rounded-lg border transition-colors ${
+                        editingItemId === item.id
+                          ? 'border-blue-500 bg-blue-50'
+                          : 'border-gray-200 hover:bg-gray-50'
+                      }`}
+                    >
+                      <div className="flex justify-between items-center">
+                        <div>
+                          <p className="font-medium text-gray-900 text-sm">{item.name}</p>
+                          <p className="text-xs text-gray-500">
+                            ₹{item.price} × {item.quantity} = ₹{item.price * item.quantity}
+                          </p>
+                        </div>
+                        {editingItemId === item.id && (
+                          <div className="text-blue-500">
+                            <Edit3 className="h-4 w-4" />
+                          </div>
+                        )}
+                      </div>
+                    </button>
+                  ))}
+                </div>
+              </div>
+
+              {/* Edit Form - shown when item is selected */}
+              {editingItemId && getEditingItem() && (
+                <>
+                  <div className="border-t pt-4">
+                    <div className="bg-gray-50 p-3 rounded-lg mb-4">
+                      <p className="font-medium text-gray-900">{getEditingItem()!.name}</p>
+                      <div className="grid grid-cols-3 gap-2 mt-2 text-xs">
+                        <div>
+                          <span className="text-gray-500">Original:</span>
+                          <span className="font-medium ml-1">₹{getEditingItem()!.original_price}</span>
+                        </div>
+                        <div>
+                          <span className="text-gray-500">Cost:</span>
+                          <span className="font-medium text-red-600 ml-1">₹{getEditingItem()!.cost_price}</span>
+                        </div>
+                        <div>
+                          <span className="text-gray-500">Stock:</span>
+                          <span className="font-medium ml-1">{getEditingItem()!.stock}</span>
+                        </div>
+                      </div>
+                    </div>
+
+                    {/* Quantity Input */}
+                    <div className="mb-4">
+                      <label className="block text-sm font-medium text-gray-700 mb-1">Quantity</label>
+                      <div className="flex items-center space-x-2">
+                        <button
+                          onClick={() => setEditQuantity(String(Math.max(1, (parseInt(editQuantity) || 1) - 1)))}
+                          className="w-10 h-10 flex items-center justify-center bg-gray-100 border border-gray-300 rounded-lg hover:bg-gray-200"
+                        >
+                          <Minus className="h-4 w-4" />
+                        </button>
+                        <input
+                          type="text"
+                          inputMode="numeric"
+                          pattern="[0-9]*"
+                          value={editQuantity}
+                          onChange={(e) => {
+                            const val = e.target.value;
+                            if (val === '' || /^\d+$/.test(val)) {
+                              setEditQuantity(val);
+                            }
+                          }}
+                          className="flex-1 px-3 py-2.5 border border-gray-300 rounded-lg focus:ring-2 focus:ring-green-500 focus:outline-none text-lg font-medium text-center"
+                        />
+                        <button
+                          onClick={() => setEditQuantity(String(Math.min(getEditingItem()!.stock, (parseInt(editQuantity) || 0) + 1)))}
+                          disabled={(parseInt(editQuantity) || 0) >= getEditingItem()!.stock}
+                          className="w-10 h-10 flex items-center justify-center bg-gray-100 border border-gray-300 rounded-lg hover:bg-gray-200 disabled:opacity-50"
+                        >
+                          <Plus className="h-4 w-4" />
+                        </button>
+                      </div>
+                      {(parseInt(editQuantity) || 0) > getEditingItem()!.stock && (
+                        <p className="text-red-500 text-xs mt-1">Max available: {getEditingItem()!.stock}</p>
+                      )}
+                    </div>
+
+                    {/* Price Input */}
+                    <div className="mb-4">
+                      <label className="block text-sm font-medium text-gray-700 mb-1">Price per unit (₹)</label>
+                      <input
+                        type="number"
+                        step="0.01"
+                        value={editPrice}
+                        onChange={(e) => handlePriceChange(e.target.value)}
+                        className={`w-full px-3 py-2.5 border rounded-lg focus:ring-2 focus:outline-none text-lg font-medium ${
+                          priceError
+                            ? 'border-red-300 focus:ring-red-500 text-red-600'
+                            : 'border-gray-300 focus:ring-green-500'
+                        }`}
+                      />
+                      {priceError && (
+                        <div className="flex items-center mt-2 text-red-600 text-sm">
+                          <AlertTriangle className="h-4 w-4 mr-1" />
+                          {priceError}
+                        </div>
+                      )}
+                    </div>
+
+                    {/* Quick discount buttons */}
+                    <div className="mb-4">
+                      <p className="text-xs text-gray-500 mb-2">Quick Discount</p>
+                      <div className="grid grid-cols-4 gap-2">
+                        {[5, 10, 15, 20].map(percent => {
+                          const item = getEditingItem()!;
+                          const discountedPrice = Math.round(item.original_price * (1 - percent / 100));
+                          const isValid = discountedPrice >= item.cost_price;
+                          return (
+                            <button
+                              key={percent}
+                              onClick={() => isValid && handlePriceChange(String(discountedPrice))}
+                              disabled={!isValid}
+                              className={`py-2 px-2 rounded-lg text-xs font-medium border transition-colors ${
+                                isValid
+                                  ? 'border-gray-300 text-gray-600 hover:bg-gray-50'
+                                  : 'border-gray-200 text-gray-300 cursor-not-allowed'
+                              }`}
+                            >
+                              -{percent}%
+                            </button>
+                          );
+                        })}
+                      </div>
+                    </div>
+
+                    {/* Line Total & Profit */}
+                    {!priceError && editPrice && editQuantity && (
+                      <div className="bg-blue-50 p-3 rounded-lg space-y-1 mb-4">
+                        <div className="flex justify-between text-sm">
+                          <span className="text-blue-700">Line Total:</span>
+                          <span className="font-bold text-blue-800">₹{(parseFloat(editPrice) * (parseInt(editQuantity) || 0)).toFixed(2)}</span>
+                        </div>
+                        <div className={`flex justify-between text-sm ${
+                          parseFloat(editPrice) > getEditingItem()!.cost_price ? 'text-green-700' : 'text-orange-700'
+                        }`}>
+                          <span>Profit:</span>
+                          <span className="font-medium">
+                            ₹{((parseFloat(editPrice) - getEditingItem()!.cost_price) * (parseInt(editQuantity) || 0)).toFixed(2)}
+                            {parseFloat(editPrice) === getEditingItem()!.cost_price && ' (at cost)'}
+                          </span>
+                        </div>
+                      </div>
+                    )}
+
+                    <div className="flex space-x-3">
+                      <button
+                        onClick={resetToOriginal}
+                        className="flex-1 bg-gray-100 text-gray-700 py-2.5 rounded-lg font-medium hover:bg-gray-200 transition-colors text-sm"
+                      >
+                        Reset
+                      </button>
+                      <button
+                        onClick={saveItemEdit}
+                        disabled={!!priceError || !editPrice || !editQuantity || (parseInt(editQuantity) || 0) <= 0 || (parseInt(editQuantity) || 0) > getEditingItem()!.stock}
+                        className="flex-1 bg-green-600 text-white py-2.5 rounded-lg font-medium hover:bg-green-700 disabled:opacity-50 disabled:cursor-not-allowed transition-colors text-sm"
+                      >
+                        Save Changes
+                      </button>
+                    </div>
+                  </div>
+                </>
+              )}
+            </div>
+
+            {/* Close Button */}
+            <div className="p-4 border-t border-gray-100">
+              <button
+                onClick={closeEditOrder}
+                className="w-full bg-gray-100 text-gray-700 py-2.5 rounded-lg font-medium hover:bg-gray-200 transition-colors text-sm"
+              >
+                Done
               </button>
             </div>
           </div>

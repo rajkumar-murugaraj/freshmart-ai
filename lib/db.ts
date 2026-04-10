@@ -2,7 +2,8 @@ import Database from 'better-sqlite3';
 import path from 'path';
 import bcrypt from 'bcryptjs';
 
-const dbPath = path.join(process.cwd(), 'freshmart.db');
+const dbDir = process.env.DB_PATH || process.cwd();
+const dbPath = path.join(dbDir, 'freshmart.db');
 const db = new Database(dbPath);
 
 // Enable foreign keys
@@ -67,6 +68,11 @@ export function initializeDatabase() {
   try {
     db.exec(`ALTER TABLE sales ADD COLUMN cashier_name TEXT`);
   } catch (e) { /* column already exists */ }
+
+  // Add expiry tracking columns to products
+  try { db.exec(`ALTER TABLE products ADD COLUMN expiry_date TEXT`); } catch (e) { /* exists */ }
+  try { db.exec(`ALTER TABLE products ADD COLUMN manufacturing_date TEXT`); } catch (e) { /* exists */ }
+  try { db.exec(`ALTER TABLE products ADD COLUMN batch_number TEXT`); } catch (e) { /* exists */ }
 
   // Stock transactions table for tracking stock changes
   db.exec(`
@@ -197,24 +203,18 @@ export function initializeDatabase() {
   `);
 
   // Seed admin user if not exists
-  const adminExists = db.prepare('SELECT id FROM users WHERE email = ?').get('admin@freshmart.com');
-  if (!adminExists) {
-    const hashedPassword = bcrypt.hashSync('admin123', 10);
-    db.prepare(`
-      INSERT INTO users (name, email, password, role, phone)
-      VALUES (?, ?, ?, ?, ?)
-    `).run('Admin', 'admin@freshmart.com', hashedPassword, 'admin', '9999999999');
-  }
+  const adminHash = bcrypt.hashSync('admin123', 10);
+  db.prepare(`
+    INSERT OR IGNORE INTO users (name, email, password, role, phone)
+    VALUES (?, ?, ?, ?, ?)
+  `).run('Admin', 'admin@freshmart.com', adminHash, 'admin', '9999999999');
 
   // Seed sales user if not exists
-  const salesExists = db.prepare('SELECT id FROM users WHERE email = ?').get('sales@freshmart.com');
-  if (!salesExists) {
-    const hashedPassword = bcrypt.hashSync('sales123', 10);
-    db.prepare(`
-      INSERT INTO users (name, email, password, role, phone)
-      VALUES (?, ?, ?, ?, ?)
-    `).run('Sales Staff', 'sales@freshmart.com', hashedPassword, 'sales', '8888888888');
-  }
+  const salesHash = bcrypt.hashSync('sales123', 10);
+  db.prepare(`
+    INSERT OR IGNORE INTO users (name, email, password, role, phone)
+    VALUES (?, ?, ?, ?, ?)
+  `).run('Sales Staff', 'sales@freshmart.com', salesHash, 'sales', '8888888888');
 
   // Seed initial products if table is empty
   const productCount = db.prepare('SELECT COUNT(*) as count FROM products').get() as { count: number };
@@ -271,6 +271,45 @@ export function initializeDatabase() {
       insertProduct.run(product);
     }
   }
+
+  // Stock notifications table
+  db.exec(`
+    CREATE TABLE IF NOT EXISTS stock_notifications (
+      id INTEGER PRIMARY KEY AUTOINCREMENT, user_id INTEGER NOT NULL, product_id INTEGER NOT NULL,
+      notified INTEGER DEFAULT 0, created_at TEXT DEFAULT CURRENT_TIMESTAMP,
+      FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE,
+      FOREIGN KEY (product_id) REFERENCES products(id) ON DELETE CASCADE, UNIQUE(user_id, product_id)
+    )
+  `);
+
+  // Review images table
+  db.exec(`
+    CREATE TABLE IF NOT EXISTS review_images (
+      id INTEGER PRIMARY KEY AUTOINCREMENT, review_id INTEGER NOT NULL, image_url TEXT NOT NULL,
+      created_at TEXT DEFAULT CURRENT_TIMESTAMP, FOREIGN KEY (review_id) REFERENCES reviews(id) ON DELETE CASCADE
+    )
+  `);
+
+  // Chat conversations table
+  db.exec(`
+    CREATE TABLE IF NOT EXISTS chat_conversations (
+      id INTEGER PRIMARY KEY AUTOINCREMENT, user_id INTEGER NOT NULL, admin_id INTEGER,
+      status TEXT DEFAULT 'open', subject TEXT, order_id INTEGER,
+      created_at TEXT DEFAULT CURRENT_TIMESTAMP, updated_at TEXT DEFAULT CURRENT_TIMESTAMP,
+      FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE, FOREIGN KEY (admin_id) REFERENCES users(id)
+    )
+  `);
+
+  // Chat messages table
+  db.exec(`
+    CREATE TABLE IF NOT EXISTS chat_messages (
+      id INTEGER PRIMARY KEY AUTOINCREMENT, conversation_id INTEGER NOT NULL, sender_id INTEGER NOT NULL,
+      sender_role TEXT NOT NULL, message TEXT NOT NULL, read INTEGER DEFAULT 0,
+      created_at TEXT DEFAULT CURRENT_TIMESTAMP,
+      FOREIGN KEY (conversation_id) REFERENCES chat_conversations(id) ON DELETE CASCADE,
+      FOREIGN KEY (sender_id) REFERENCES users(id)
+    )
+  `);
 
   console.log('Database initialized successfully');
 }

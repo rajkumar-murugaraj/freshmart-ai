@@ -12,6 +12,9 @@ export interface Product {
   variant_group?: string;
   variant_type?: string;
   variant_value?: string;
+  expiry_date?: string;
+  manufacturing_date?: string;
+  batch_number?: string;
 }
 
 export interface CartItem extends Product {

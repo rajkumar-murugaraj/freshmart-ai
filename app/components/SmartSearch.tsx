@@ -4,6 +4,7 @@ import React, { useState, useEffect, useRef, useMemo, useCallback } from 'react'
 import { Search, X, Filter, ChevronDown, Clock, TrendingUp, Mic, MicOff, Loader2, ShoppingCart, CheckCircle } from 'lucide-react';
 import { Product, CATEGORIES } from '../types';
 import Fuse from 'fuse.js';
+import { autocorrect, AutocorrectResult } from '../lib/search-dictionary';
 
 // Voice recognition types
 interface SpeechRecognitionEvent {
@@ -85,6 +86,9 @@ export const SmartSearch: React.FC<SmartSearchProps> = ({
   const [showVoiceResults, setShowVoiceResults] = useState(false);
   const [voiceSupported, setVoiceSupported] = useState(true);
   const recognitionRef = useRef<any>(null);
+
+  // Autocorrect state
+  const [autocorrectSuggestion, setAutocorrectSuggestion] = useState<AutocorrectResult | null>(null);
 
   // Load recent searches from localStorage
   useEffect(() => {
@@ -267,15 +271,23 @@ export const SmartSearch: React.FC<SmartSearchProps> = ({
     });
   }, [products]);
 
-  // Get autocomplete suggestions with fuzzy matching
+  // Get autocomplete suggestions with fuzzy matching + autocorrect
   const suggestions = useMemo(() => {
-    if (!query.trim() || query.length < 2) return [];
+    if (!query.trim() || query.length < 2) { setAutocorrectSuggestion(null); return []; }
 
-    // Use Fuse.js for fuzzy search
     const results = fuse.search(query, { limit: 6 });
+    const items = results.map(result => result.item);
 
-    return results.map(result => result.item);
-  }, [query, fuse]);
+    if (items.length <= 1) {
+      const correction = autocorrect(query, products.map(p => p.name));
+      if (correction) {
+        setAutocorrectSuggestion(correction);
+        if (items.length === 0) return fuse.search(correction.corrected, { limit: 6 }).map(r => r.item);
+      } else { setAutocorrectSuggestion(null); }
+    } else { setAutocorrectSuggestion(null); }
+
+    return items;
+  }, [query, fuse, products]);
 
   // Handle search submission
   const handleSearch = (searchQuery: string) => {
@@ -302,6 +314,7 @@ export const SmartSearch: React.FC<SmartSearchProps> = ({
   const clearSearch = () => {
     setQuery('');
     onSearch('');
+    setAutocorrectSuggestion(null);
     inputRef.current?.focus();
   };
 
@@ -383,6 +396,30 @@ export const SmartSearch: React.FC<SmartSearchProps> = ({
       {/* Autocomplete Dropdown */}
       {isFocused && (
         <div className="absolute top-full left-0 right-0 mt-2 bg-white dark:bg-gray-800 rounded-xl shadow-lg border border-gray-200 dark:border-gray-700 overflow-hidden z-50 max-h-[400px] overflow-y-auto">
+          {/* Autocorrect Banner */}
+          {autocorrectSuggestion && query.length >= 2 && (
+            <div className={`px-3 py-2 text-sm border-b border-gray-100 dark:border-gray-700 ${
+              autocorrectSuggestion.type === 'synonym'
+                ? 'bg-blue-50 dark:bg-blue-900/20 text-blue-700 dark:text-blue-300'
+                : 'bg-yellow-50 dark:bg-yellow-900/20 text-yellow-700 dark:text-yellow-300'
+            }`}>
+              {autocorrectSuggestion.type === 'synonym' ? (
+                <span>Showing results for <strong>{autocorrectSuggestion.corrected}</strong> ({autocorrectSuggestion.original})</span>
+              ) : (
+                <span>
+                  Did you mean{' '}
+                  <button
+                    onClick={() => { setQuery(autocorrectSuggestion!.corrected); onSearch(autocorrectSuggestion!.corrected); }}
+                    className="font-bold underline hover:no-underline"
+                  >
+                    {autocorrectSuggestion.corrected}
+                  </button>
+                  ?
+                </span>
+              )}
+            </div>
+          )}
+
           {/* Autocomplete Results */}
           {suggestions.length > 0 && (
             <div className="p-2">

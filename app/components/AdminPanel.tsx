@@ -3,12 +3,13 @@
 import React, { useState, useEffect, useRef, useCallback, useMemo } from 'react';
 import { Product, ProductGroup, CATEGORIES, Order, User } from '../types';
 import { ProductCard } from './ProductCard';
-import { Plus, X, Wand2, Package, LayoutGrid, Phone, Bell, BarChart3, Boxes, ChevronLeft, ChevronRight, ChevronsLeft, ChevronsRight, Loader2, Filter, ShoppingCart, Receipt } from 'lucide-react';
+import { Plus, X, Wand2, Package, LayoutGrid, Phone, Bell, BarChart3, Boxes, ChevronLeft, ChevronRight, ChevronsLeft, ChevronsRight, Loader2, Filter, ShoppingCart, Receipt, MessageSquare } from 'lucide-react';
 import { api } from '../lib/api';
 import { Dashboard } from './Dashboard';
 import { StockManagement } from './StockManagement';
 import { SalesPOS } from './SalesPOS';
 import { SalesReports } from './SalesReports';
+import { AdminChat } from './AdminChat';
 import { io, Socket } from 'socket.io-client';
 
 interface VariantRow {
@@ -78,7 +79,7 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({
   onRefreshProducts,
   currentUser
 }) => {
-  const [activeTab, setActiveTab] = useState<'dashboard' | 'products' | 'orders' | 'stock' | 'pos' | 'reports'>('dashboard');
+  const [activeTab, setActiveTab] = useState<'dashboard' | 'products' | 'orders' | 'stock' | 'pos' | 'reports' | 'chat'>('dashboard');
   const [orders, setOrders] = useState<Order[]>([]);
   const [notifications, setNotifications] = useState<Array<{ id: string; message: string; orderId: string | undefined; time: string; read: boolean }>>([]);
   const [showNotifDropdown, setShowNotifDropdown] = useState(false);
@@ -178,7 +179,10 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({
     min_stock: 10,
     variant_group: '',
     variant_type: '',
-    variant_value: ''
+    variant_value: '',
+    expiry_date: '',
+    manufacturing_date: '',
+    batch_number: ''
   };
 
   useEffect(() => {
@@ -554,6 +558,13 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({
             <span className="hidden sm:inline">Sales Reports</span>
             <span className="sm:hidden">Reports</span>
           </button>
+          <button
+            onClick={() => setActiveTab('chat')}
+            className={`px-2 sm:px-4 py-1.5 sm:py-2 rounded-md text-xs sm:text-sm font-medium transition-colors whitespace-nowrap ${activeTab === 'chat' ? 'bg-purple-100 dark:bg-purple-900/50 text-purple-700 dark:text-purple-300' : 'text-gray-600 dark:text-gray-300 hover:bg-gray-50 dark:hover:bg-gray-700'}`}
+          >
+            <MessageSquare className="inline h-3 w-3 sm:h-4 sm:w-4 mr-1 sm:mr-2" />
+            Chat
+          </button>
           <div className="relative flex items-center">
             <button onClick={() => setShowNotifDropdown(s => !s)} className="p-1.5 sm:p-2 rounded-md hover:bg-gray-50 dark:hover:bg-gray-700">
               <Bell className="h-4 w-4 sm:h-5 sm:w-5 text-gray-600 dark:text-gray-300" />
@@ -581,6 +592,10 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({
 
       {activeTab === 'reports' && (
         <SalesReports />
+      )}
+
+      {activeTab === 'chat' && (
+        <AdminChat />
       )}
 
       {activeTab === 'products' && (
@@ -1063,7 +1078,7 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({
                 </>
               )}
 
-              {/* Min Stock & Image */}
+              {/* Min Stock & Expiry Fields */}
               <div>
                 <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">Min Stock Level</label>
                 <input
@@ -1072,6 +1087,37 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({
                   min="0"
                   value={currentProduct.min_stock ?? 10}
                   onChange={e => setCurrentProduct({ ...currentProduct, min_stock: Number(e.target.value) })}
+                  className="w-full px-3 py-2 border border-gray-300 dark:border-gray-600 bg-white dark:bg-gray-700 text-gray-900 dark:text-white rounded-lg focus:ring-2 focus:ring-green-500 focus:outline-none"
+                />
+              </div>
+
+              <div>
+                <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">Manufacturing Date</label>
+                <input
+                  type="date"
+                  value={currentProduct.manufacturing_date || ''}
+                  onChange={e => setCurrentProduct({ ...currentProduct, manufacturing_date: e.target.value })}
+                  className="w-full px-3 py-2 border border-gray-300 dark:border-gray-600 bg-white dark:bg-gray-700 text-gray-900 dark:text-white rounded-lg focus:ring-2 focus:ring-green-500 focus:outline-none"
+                />
+              </div>
+
+              <div>
+                <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">Expiry Date</label>
+                <input
+                  type="date"
+                  value={currentProduct.expiry_date || ''}
+                  onChange={e => setCurrentProduct({ ...currentProduct, expiry_date: e.target.value })}
+                  className="w-full px-3 py-2 border border-gray-300 dark:border-gray-600 bg-white dark:bg-gray-700 text-gray-900 dark:text-white rounded-lg focus:ring-2 focus:ring-green-500 focus:outline-none"
+                />
+              </div>
+
+              <div>
+                <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">Batch Number</label>
+                <input
+                  type="text"
+                  value={currentProduct.batch_number || ''}
+                  onChange={e => setCurrentProduct({ ...currentProduct, batch_number: e.target.value })}
+                  placeholder="e.g. BATCH-2024-001"
                   className="w-full px-3 py-2 border border-gray-300 dark:border-gray-600 bg-white dark:bg-gray-700 text-gray-900 dark:text-white rounded-lg focus:ring-2 focus:ring-green-500 focus:outline-none"
                 />
               </div>

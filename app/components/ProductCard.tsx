@@ -1,9 +1,10 @@
 'use client';
 
-import React from 'react';
-import { Plus, Edit, Trash2, Eye } from 'lucide-react';
+import React, { useState } from 'react';
+import { Plus, Edit, Trash2, Eye, Share2 } from 'lucide-react';
 import { Product } from '../types';
 import { WishlistButton } from './WishlistButton';
+import { ShareMenu } from './ShareMenu';
 
 interface ProductCardProps {
   product: Product;
@@ -28,6 +29,21 @@ export const ProductCard: React.FC<ProductCardProps> = ({
   showWishlist = true,
   variantCount
 }) => {
+  const [showShare, setShowShare] = useState(false);
+
+  // Expiry badge logic
+  const getExpiryBadge = () => {
+    if (!product.expiry_date) return null;
+    const now = new Date();
+    const expiry = new Date(product.expiry_date);
+    const daysLeft = Math.ceil((expiry.getTime() - now.getTime()) / (1000 * 60 * 60 * 24));
+    if (daysLeft < 0) return { text: 'Expired', color: 'bg-red-600 text-white' };
+    if (daysLeft <= 3) return { text: `${daysLeft}d left`, color: 'bg-red-500 text-white' };
+    if (daysLeft <= 7) return { text: `${daysLeft}d left`, color: 'bg-orange-500 text-white' };
+    return { text: 'Fresh', color: 'bg-green-500 text-white' };
+  };
+  const expiryBadge = getExpiryBadge();
+
   return (
     <div
       className={`bg-white dark:bg-gray-800 rounded-lg sm:rounded-xl shadow-sm border border-gray-100 dark:border-gray-700 overflow-hidden hover:shadow-md transition-all duration-300 flex flex-col h-full ${onProductClick ? 'cursor-pointer' : ''}`}
@@ -44,6 +60,12 @@ export const ProductCard: React.FC<ProductCardProps> = ({
             {product.category}
           </span>
         )}
+        {/* Expiry Badge */}
+        {expiryBadge && (
+          <span className={`absolute top-1.5 right-1.5 sm:top-2 sm:right-2 text-[10px] sm:text-xs font-bold px-1.5 sm:px-2 py-0.5 sm:py-1 rounded ${expiryBadge.color}`}>
+            {expiryBadge.text}
+          </span>
+        )}
         {/* Variant badge - admin shows count, shop shows type:value */}
         {isAdmin && variantCount && variantCount > 1 ? (
           <span className="absolute bottom-1.5 left-1.5 sm:bottom-2 sm:left-2 bg-purple-600/90 backdrop-blur-sm text-white text-[10px] sm:text-xs font-bold px-1.5 sm:px-2 py-0.5 sm:py-1 rounded">
@@ -54,9 +76,9 @@ export const ProductCard: React.FC<ProductCardProps> = ({
             {product.variant_type}: {product.variant_value}
           </span>
         ) : null}
-        {/* Wishlist & Quick View Buttons */}
+        {/* Wishlist, Quick View & Share Buttons */}
         {!isAdmin && (
-          <div className="absolute top-1.5 right-1.5 sm:top-2 sm:right-2 flex flex-col gap-1.5 opacity-0 group-hover:opacity-100 transition-opacity duration-200">
+          <div className={`absolute ${expiryBadge ? 'top-8 sm:top-10' : 'top-1.5 sm:top-2'} right-1.5 sm:right-2 flex flex-col gap-1.5 opacity-0 group-hover:opacity-100 transition-opacity duration-200`}>
             {showWishlist && <WishlistButton product={product} size="sm" />}
             {onQuickView && (
               <button
@@ -67,6 +89,16 @@ export const ProductCard: React.FC<ProductCardProps> = ({
                 <Eye className="h-3.5 w-3.5 sm:h-4 sm:w-4 text-gray-600 dark:text-gray-300" />
               </button>
             )}
+            <div className="relative">
+              <button
+                onClick={(e) => { e.stopPropagation(); setShowShare(!showShare); }}
+                className="p-1.5 sm:p-2 bg-white/90 dark:bg-gray-800/90 backdrop-blur-sm rounded-full shadow-md hover:bg-white dark:hover:bg-gray-700 transition-colors"
+                title="Share"
+              >
+                <Share2 className="h-3.5 w-3.5 sm:h-4 sm:w-4 text-gray-600 dark:text-gray-300" />
+              </button>
+              {showShare && <ShareMenu product={product} onClose={() => setShowShare(false)} position="below" />}
+            </div>
           </div>
         )}
       </div>

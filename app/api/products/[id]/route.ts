@@ -51,12 +51,15 @@ export async function PUT(
     const variant_group = body.variant_group !== undefined ? (body.variant_group || null) : existing.variant_group;
     const variant_type = body.variant_type !== undefined ? (body.variant_type || null) : existing.variant_type;
     const variant_value = body.variant_value !== undefined ? (body.variant_value || null) : existing.variant_value;
+    const expiry_date = body.expiry_date !== undefined ? (body.expiry_date || null) : existing.expiry_date;
+    const manufacturing_date = body.manufacturing_date !== undefined ? (body.manufacturing_date || null) : existing.manufacturing_date;
+    const batch_number = body.batch_number !== undefined ? (body.batch_number || null) : existing.batch_number;
 
     db.prepare(`
       UPDATE products
-      SET name = ?, price = ?, cost_price = ?, category = ?, image = ?, description = ?, unit = ?, variant_group = ?, variant_type = ?, variant_value = ?
+      SET name = ?, price = ?, cost_price = ?, category = ?, image = ?, description = ?, unit = ?, variant_group = ?, variant_type = ?, variant_value = ?, expiry_date = ?, manufacturing_date = ?, batch_number = ?
       WHERE id = ?
-    `).run(name, price, finalCostPrice, category, image, description, unit, variant_group, variant_type, variant_value, params.id);
+    `).run(name, price, finalCostPrice, category, image, description, unit, variant_group, variant_type, variant_value, expiry_date, manufacturing_date, batch_number, params.id);
 
     return NextResponse.json({
       id: params.id,
@@ -69,7 +72,10 @@ export async function PUT(
       unit,
       variant_group,
       variant_type,
-      variant_value
+      variant_value,
+      expiry_date,
+      manufacturing_date,
+      batch_number
     });
   } catch (error) {
     console.error('Update product error:', error);

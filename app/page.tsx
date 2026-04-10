@@ -8,6 +8,7 @@ import { CartDrawer } from './components/CartDrawer';
 import { WishlistDrawer } from './components/WishlistDrawer';
 import { Checkout, OrderSuccess } from './components/Checkout';
 import { AIAssistant } from './components/AIAssistant';
+import { LiveChat } from './components/LiveChat';
 import { AuthModal } from './components/AuthModal';
 import { UserProfile } from './components/UserProfile';
 import { ProductDetail } from './components/ProductDetail';
@@ -365,7 +366,10 @@ export default function Home() {
       />
 
       {view === 'shop' && currentUser && currentUser.role !== 'admin' && (
-        <AIAssistant cart={cart} />
+        <>
+          <AIAssistant cart={cart} />
+          <LiveChat currentUser={currentUser} />
+        </>
       )}
 
       <AuthModal

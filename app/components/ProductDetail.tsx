@@ -6,6 +6,7 @@ import { Product } from '../types';
 import { WishlistButton } from './WishlistButton';
 import { ProductCarousel } from './ProductCarousel';
 import ProductReviews from './ProductReviews';
+import { ShareMenu } from './ShareMenu';
 
 interface ProductDetailProps {
   product: Product;
@@ -26,6 +27,7 @@ export const ProductDetail: React.FC<ProductDetailProps> = ({
 }) => {
   const [quantity, setQuantity] = useState(1);
   const [addedToCart, setAddedToCart] = useState(false);
+  const [showShareMenu, setShowShareMenu] = useState(false);
 
   // Reset state when product changes (e.g., variant navigation)
   useEffect(() => {
@@ -78,21 +80,8 @@ export const ProductDetail: React.FC<ProductDetailProps> = ({
     setQuantity(1);
   };
 
-  const handleShare = async () => {
-    const shareText = `Check out ${product.name} on FreshMart - ₹${product.price}/${product.unit}`;
-    if (navigator.share) {
-      try {
-        await navigator.share({
-          title: product.name,
-          text: shareText,
-          url: window.location.href
-        });
-      } catch {
-        // user cancelled
-      }
-    } else {
-      navigator.clipboard.writeText(`${shareText}\n${window.location.href}`);
-    }
+  const handleShare = () => {
+    setShowShareMenu(!showShareMenu);
   };
 
   return (
@@ -347,13 +336,16 @@ export const ProductDetail: React.FC<ProductDetailProps> = ({
 
             <WishlistButton product={product} size="md" />
 
-            <button
-              onClick={handleShare}
-              className="p-3 rounded-xl border border-gray-200 dark:border-gray-600 hover:bg-gray-100 dark:hover:bg-gray-700 text-gray-500 dark:text-gray-400 transition-colors"
-              title="Share"
-            >
-              <Share2 className="h-5 w-5" />
-            </button>
+            <div className="relative">
+              <button
+                onClick={handleShare}
+                className="p-3 rounded-xl border border-gray-200 dark:border-gray-600 hover:bg-gray-100 dark:hover:bg-gray-700 text-gray-500 dark:text-gray-400 transition-colors"
+                title="Share"
+              >
+                <Share2 className="h-5 w-5" />
+              </button>
+              {showShareMenu && <ShareMenu product={product} onClose={() => setShowShareMenu(false)} position="above" />}
+            </div>
           </div>
         </div>
       </div>

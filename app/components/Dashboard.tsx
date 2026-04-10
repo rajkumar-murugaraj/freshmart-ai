@@ -12,7 +12,8 @@ import {
   Calendar,
   BarChart3,
   PieChart as PieChartIcon,
-  RefreshCw
+  RefreshCw,
+  Clock
 } from 'lucide-react';
 import { api } from '../lib/api';
 import {
@@ -59,6 +60,7 @@ export const Dashboard: React.FC = () => {
   const [loading, setLoading] = useState(true);
   const [period, setPeriod] = useState<Period>('month');
   const [error, setError] = useState('');
+  const [expiringItems, setExpiringItems] = useState<Array<{ id: string; name: string; expiry_date: string; stock: number }>>([]);
 
   const fetchDashboard = async () => {
     setLoading(true);
@@ -73,8 +75,21 @@ export const Dashboard: React.FC = () => {
     }
   };
 
+  const fetchExpiringItems = async () => {
+    try {
+      const res = await fetch('/api/products/expiring?days=7');
+      if (res.ok) {
+        const items = await res.json();
+        setExpiringItems(items);
+      }
+    } catch (e) {
+      console.error('Failed to fetch expiring items', e);
+    }
+  };
+
   useEffect(() => {
     fetchDashboard();
+    fetchExpiringItems();
   }, [period]);
 
   if (loading) {
@@ -473,6 +488,42 @@ export const Dashboard: React.FC = () => {
             </div>
           )}
         </div>
+
+        {/* Expiring Soon Alerts */}
+        {expiringItems.length > 0 && (
+          <div className="bg-white dark:bg-gray-800 p-4 sm:p-6 rounded-xl border border-gray-200 dark:border-gray-700 shadow-sm">
+            <h3 className="text-sm sm:text-lg font-semibold text-gray-900 dark:text-white mb-3 sm:mb-4 flex items-center">
+              <Clock className="h-4 w-4 sm:h-5 sm:w-5 mr-2 text-orange-600 dark:text-orange-400" />
+              Expiring Soon
+              <span className="ml-2 px-2 py-0.5 text-xs font-bold bg-orange-100 dark:bg-orange-900/50 text-orange-700 dark:text-orange-300 rounded-full">
+                {expiringItems.length}
+              </span>
+            </h3>
+            <div className="space-y-2 max-h-48 sm:max-h-64 overflow-y-auto">
+              {expiringItems.map((item, index) => {
+                const daysLeft = Math.ceil((new Date(item.expiry_date).getTime() - Date.now()) / (1000 * 60 * 60 * 24));
+                return (
+                  <div
+                    key={index}
+                    className={`flex items-center justify-between p-2 sm:p-3 rounded-lg ${
+                      daysLeft < 0 ? 'bg-red-50 dark:bg-red-900/30' : daysLeft <= 3 ? 'bg-red-50 dark:bg-red-900/30' : 'bg-orange-50 dark:bg-orange-900/30'
+                    }`}
+                  >
+                    <div className="min-w-0 flex-1">
+                      <p className="text-xs sm:text-sm font-medium text-gray-900 dark:text-white truncate">{item.name}</p>
+                      <p className="text-[10px] sm:text-xs text-gray-500 dark:text-gray-400">Stock: {item.stock}</p>
+                    </div>
+                    <span className={`px-2 py-0.5 sm:py-1 rounded text-[10px] sm:text-xs font-bold flex-shrink-0 ml-2 ${
+                      daysLeft < 0 ? 'bg-red-100 dark:bg-red-900/50 text-red-700 dark:text-red-300' : daysLeft <= 3 ? 'bg-red-100 dark:bg-red-900/50 text-red-700 dark:text-red-300' : 'bg-orange-100 dark:bg-orange-900/50 text-orange-700 dark:text-orange-300'
+                    }`}>
+                      {daysLeft < 0 ? 'Expired' : `${daysLeft}d left`}
+                    </span>
+                  </div>
+                );
+              })}
+            </div>
+          </div>
+        )}
 
         {/* Low Stock Alerts */}
         <div className="bg-white dark:bg-gray-800 p-4 sm:p-6 rounded-xl border border-gray-200 dark:border-gray-700 shadow-sm md:col-span-2 lg:col-span-1">

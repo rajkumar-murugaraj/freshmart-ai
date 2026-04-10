@@ -35,6 +35,9 @@ interface StockItem {
   price: number;
   cost_price: number;
   status: 'ok' | 'low' | 'out';
+  expiry_date?: string;
+  manufacturing_date?: string;
+  batch_number?: string;
 }
 
 interface StockTransaction {
@@ -61,7 +64,7 @@ interface PaginationInfo {
 export const StockManagement: React.FC<StockManagementProps> = ({ currentUser }) => {
   const [stockItems, setStockItems] = useState<StockItem[]>([]);
   const [loading, setLoading] = useState(true);
-  const [filter, setFilter] = useState<'all' | 'low' | 'out'>('all');
+  const [filter, setFilter] = useState<'all' | 'low' | 'out' | 'expiring'>('all');
   const [searchQuery, setSearchQuery] = useState('');
   const [selectedProduct, setSelectedProduct] = useState<StockItem | null>(null);
   const [productHistory, setProductHistory] = useState<StockTransaction[]>([]);
@@ -107,7 +110,7 @@ export const StockManagement: React.FC<StockManagementProps> = ({ currentUser })
       const data = await api.getStockPaginated({
         page: pageNum,
         limit: 10,
-        filter: filter === 'all' ? undefined : filter
+        filter: (filter === 'all' || filter === 'expiring' ? undefined : filter) as 'low' | 'out' | undefined
       });
       setStockItems(data.products);
       setPagination(data.pagination);
@@ -319,10 +322,18 @@ export const StockManagement: React.FC<StockManagementProps> = ({ currentUser })
     setShowDeleteConfirm(true);
   };
 
-  const filteredItems = stockItems.filter(item =>
-    item.name.toLowerCase().includes(searchQuery.toLowerCase()) ||
-    item.category.toLowerCase().includes(searchQuery.toLowerCase())
-  );
+  const filteredItems = stockItems.filter(item => {
+    const matchesSearch = item.name.toLowerCase().includes(searchQuery.toLowerCase()) ||
+      item.category.toLowerCase().includes(searchQuery.toLowerCase());
+    if (!matchesSearch) return false;
+    // Client-side expiring filter (supplements server-side filter)
+    if (filter === 'expiring') {
+      if (!item.expiry_date) return false;
+      const daysLeft = Math.ceil((new Date(item.expiry_date).getTime() - Date.now()) / (1000 * 60 * 60 * 24));
+      return daysLeft <= 7;
+    }
+    return true;
+  });
 
   // Product Details Panel Component (shared between desktop sidebar and mobile drawer)
   const ProductDetailsPanel = ({ isMobile = false }: { isMobile?: boolean }) => (
@@ -539,12 +550,13 @@ export const StockManagement: React.FC<StockManagementProps> = ({ currentUser })
           <Filter className="h-4 w-4 sm:h-5 sm:w-5 text-gray-400 hidden sm:block" />
           <select
             value={filter}
-            onChange={(e) => setFilter(e.target.value as 'all' | 'low' | 'out')}
+            onChange={(e) => setFilter(e.target.value as 'all' | 'low' | 'out' | 'expiring')}
             className="flex-1 sm:flex-none border border-gray-300 rounded-lg px-3 py-2 sm:py-2.5 focus:ring-2 focus:ring-green-500 focus:outline-none text-sm"
           >
             <option value="all">All Items</option>
             <option value="low">Low Stock</option>
             <option value="out">Out of Stock</option>
+            <option value="expiring">Expiring Soon</option>
           </select>
         </div>
       </div>
@@ -573,6 +585,14 @@ export const StockManagement: React.FC<StockManagementProps> = ({ currentUser })
                     <div className="flex-1 min-w-0">
                       <p className="font-medium text-gray-900 text-sm truncate">{item.name}</p>
                       <p className="text-xs text-gray-500">{item.category} • Cost: ₹{item.cost_price} → Sell: ₹{item.price}/{item.unit}</p>
+                      {item.expiry_date && (() => {
+                        const daysLeft = Math.ceil((new Date(item.expiry_date).getTime() - Date.now()) / (1000 * 60 * 60 * 24));
+                        return (
+                          <p className={`text-[10px] font-medium mt-0.5 ${daysLeft < 0 ? 'text-red-600' : daysLeft <= 3 ? 'text-red-500' : daysLeft <= 7 ? 'text-orange-500' : 'text-green-600'}`}>
+                            {daysLeft < 0 ? 'Expired' : daysLeft <= 7 ? `Expires in ${daysLeft}d` : `Expires: ${new Date(item.expiry_date).toLocaleDateString()}`}
+                          </p>
+                        );
+                      })()}
                     </div>
                     <div className="flex items-center space-x-2 ml-2">
                       {bulkMode ? (

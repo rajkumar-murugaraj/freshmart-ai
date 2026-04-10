@@ -55,10 +55,13 @@ export async function POST(request: NextRequest) {
     const variant_group = body.variant_group || null;
     const variant_type = body.variant_type || null;
     const variant_value = body.variant_value || null;
+    const expiry_date = body.expiry_date || null;
+    const manufacturing_date = body.manufacturing_date || null;
+    const batch_number = body.batch_number || null;
 
     const result = db.prepare(`
-      INSERT INTO products (name, price, cost_price, category, image, description, unit, stock, min_stock, variant_group, variant_type, variant_value)
-      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+      INSERT INTO products (name, price, cost_price, category, image, description, unit, stock, min_stock, variant_group, variant_type, variant_value, expiry_date, manufacturing_date, batch_number)
+      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
     `).run(
       name,
       price,
@@ -71,7 +74,10 @@ export async function POST(request: NextRequest) {
       initialMinStock,
       variant_group,
       variant_type,
-      variant_value
+      variant_value,
+      expiry_date,
+      manufacturing_date,
+      batch_number
     );
 
     const productId = result.lastInsertRowid;
@@ -89,7 +95,10 @@ export async function POST(request: NextRequest) {
       min_stock: initialMinStock,
       variant_group,
       variant_type,
-      variant_value
+      variant_value,
+      expiry_date,
+      manufacturing_date,
+      batch_number
     });
   } catch (error) {
     console.error('Add product error:', error);

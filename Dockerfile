@@ -48,6 +48,9 @@ COPY --from=builder /app/node_modules/prebuild-install ./node_modules/prebuild-i
 # Create data directory for SQLite persistent volume
 RUN mkdir -p /data && chown nextjs:nodejs /data
 
+# Ensure /app is writable by nextjs (for default SQLite path)
+RUN chown nextjs:nodejs /app
+
 USER nextjs
 
 EXPOSE 3000

@@ -158,7 +158,7 @@ const path = require('path');
 const fs = require('fs');
 
 const DB_PATH = process.env.SQLITE_PATH
-  || (process.env.NODE_ENV === 'production' ? '/data/freshmart.db' : './grocery.db');
+  || (process.env.NODE_ENV === 'production' ? './freshmart.db' : './grocery.db');
 
 const dbDir = path.dirname(DB_PATH);
 if (dbDir && dbDir !== '.' && !fs.existsSync(dbDir)) {

@@ -1,5 +1,21 @@
 require('dotenv').config();
 
+// Skip DB initialization during Next.js build-time route analysis
+// (parallel workers cause SQLITE_BUSY when collecting page data)
+if (process.env.NEXT_PHASE === 'phase-production-build') {
+  const noop = () => {};
+  const stub = {
+    get: (sql, params, cb) => cb && cb(null, undefined),
+    all: (sql, params, cb) => cb && cb(null, []),
+    run: (sql, params, cb) => cb && cb(null),
+    serialize: (fn) => fn && fn(),
+    prepare: () => ({ run: noop, finalize: noop }),
+    close: noop,
+  };
+  module.exports = stub;
+  return;
+}
+
 const DB_TYPE = (process.env.DB_TYPE || 'sqlite').toLowerCase();
 
 if (DB_TYPE === 'mysql') {

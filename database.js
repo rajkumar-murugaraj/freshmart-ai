@@ -154,7 +154,18 @@ if (DB_TYPE === 'mysql') {
 }
 
 const sqlite3 = require('sqlite3').verbose();
-const db = new sqlite3.Database('./grocery.db');
+const path = require('path');
+const fs = require('fs');
+
+const DB_PATH = process.env.SQLITE_PATH
+  || (process.env.NODE_ENV === 'production' ? '/data/freshmart.db' : './grocery.db');
+
+const dbDir = path.dirname(DB_PATH);
+if (dbDir && dbDir !== '.' && !fs.existsSync(dbDir)) {
+  fs.mkdirSync(dbDir, { recursive: true });
+}
+
+const db = new sqlite3.Database(DB_PATH);
 
 db.serialize(() => {
   // Users Table

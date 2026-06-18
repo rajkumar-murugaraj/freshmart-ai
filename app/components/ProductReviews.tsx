@@ -219,9 +219,13 @@ export default function ProductReviews({ productId, currentUser }: ProductReview
             </div>
           </div>
         ) : (
-          <p className="text-gray-500 dark:text-gray-400 text-center py-4">
-            No reviews yet. Be the first to review this product!
-          </p>
+          <div className="text-center py-8">
+            <div className="bg-yellow-50 dark:bg-yellow-900/20 p-4 rounded-full inline-flex mb-3">
+              <svg className="h-8 w-8 text-yellow-500" fill="currentColor" viewBox="0 0 24 24"><path d="M12 2l3.09 6.26L22 9.27l-5 4.87 1.18 6.88L12 17.77l-6.18 3.25L7 14.14 2 9.27l6.91-1.01L12 2z"/></svg>
+            </div>
+            <p className="font-medium text-gray-900 dark:text-white mb-1">No reviews yet</p>
+            <p className="text-sm text-gray-500 dark:text-gray-400">Be the first to share your experience!</p>
+          </div>
         )}
       </div>
 

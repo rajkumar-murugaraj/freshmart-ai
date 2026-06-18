@@ -323,9 +323,20 @@ export const UserProfile: React.FC<UserProfileProps> = ({ user, onUpdateUser, on
               </div>
               <div className="divide-y divide-gray-100">
                 {orders.length === 0 ? (
-                  <div className="p-8 sm:p-10 text-center text-gray-500">
-                    <Package className="h-10 w-10 sm:h-12 sm:w-12 mx-auto text-gray-300 mb-3" />
-                    <p className="text-sm">No orders found.</p>
+                  <div className="p-10 sm:p-14 text-center">
+                    <div className="bg-green-50 dark:bg-green-900/20 p-5 rounded-full inline-flex mb-4">
+                      <Package className="h-10 w-10 sm:h-12 sm:w-12 text-green-500" />
+                    </div>
+                    <h4 className="text-base sm:text-lg font-semibold text-gray-900 mb-1">No orders yet</h4>
+                    <p className="text-sm text-gray-500 mb-4 max-w-xs mx-auto">
+                      When you place your first order, it&apos;ll show up here with live status updates.
+                    </p>
+                    <a
+                      href="/"
+                      className="inline-flex items-center gap-2 bg-green-600 hover:bg-green-700 text-white text-sm font-semibold px-5 py-2.5 rounded-lg shadow-sm transition-colors"
+                    >
+                      Start Shopping
+                    </a>
                   </div>
                 ) : (
                   [...orders].reverse().map(order => (
@@ -391,7 +402,15 @@ export const UserProfile: React.FC<UserProfileProps> = ({ user, onUpdateUser, on
               </div>
               <div className="divide-y divide-gray-100">
                 {notifications.length === 0 ? (
-                  <div className="p-8 sm:p-10 text-center text-gray-500 text-sm">No notifications yet.</div>
+                  <div className="p-10 sm:p-14 text-center">
+                    <div className="bg-blue-50 dark:bg-blue-900/20 p-5 rounded-full inline-flex mb-4">
+                      <Bell className="h-10 w-10 sm:h-12 sm:w-12 text-blue-500" />
+                    </div>
+                    <h4 className="text-base sm:text-lg font-semibold text-gray-900 mb-1">You&apos;re all caught up</h4>
+                    <p className="text-sm text-gray-500 max-w-xs mx-auto">
+                      Order updates, price drops and offers will show up here.
+                    </p>
+                  </div>
                 ) : (
                   notifications.map(n => (
                     <div key={n.id} className={`p-3 sm:p-4 ${n.read ? 'opacity-60' : ''}`}>

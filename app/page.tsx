@@ -367,7 +367,7 @@ export default function Home() {
 
       {view === 'shop' && currentUser && currentUser.role !== 'admin' && (
         <>
-          <AIAssistant cart={cart} />
+          <AIAssistant cart={cart} onAddToCart={addToCart} />
           <LiveChat currentUser={currentUser} />
         </>
       )}

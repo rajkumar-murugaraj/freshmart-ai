@@ -1,20 +1,28 @@
 'use client';
 
 import React, { useState, useRef, useEffect } from 'react';
-import { X, Bot, Sparkles, Send, ChefHat, Utensils, Apple, Leaf, RefreshCw, ShoppingCart, Loader2 } from 'lucide-react';
-import { CartItem } from '../types';
+import { X, Bot, Sparkles, Send, ChefHat, Utensils, Apple, Leaf, RefreshCw, ShoppingCart, Loader2, Plus, Soup } from 'lucide-react';
+import { CartItem, Product } from '../types';
 import { api } from '../lib/api';
 
 interface AIAssistantProps {
   cart: CartItem[];
+  onAddToCart?: (product: Product) => void;
 }
 
 type MessageRole = 'user' | 'ai';
 
+interface RecipeResult {
+  dish: string;
+  matched: (Product & { requestedQuantity: string })[];
+  unmatched: { name: string; quantity: string }[];
+}
+
 interface Message {
   role: MessageRole;
   text: string;
-  type?: 'recipe' | 'nutrition' | 'meal-plan' | 'substitute' | 'tip' | 'general';
+  type?: 'recipe' | 'nutrition' | 'meal-plan' | 'substitute' | 'tip' | 'general' | 'recipe-cart';
+  recipe?: RecipeResult;
 }
 
 interface QuickAction {
@@ -24,17 +32,18 @@ interface QuickAction {
   color: string;
 }
 
-export const AIAssistant: React.FC<AIAssistantProps> = ({ cart }) => {
+export const AIAssistant: React.FC<AIAssistantProps> = ({ cart, onAddToCart }) => {
   const [isOpen, setIsOpen] = useState(false);
   const [messages, setMessages] = useState<Message[]>([
     {
       role: 'ai',
-      text: "Hi! I'm your FreshMart AI Chef! I can help you with:\n\n- Recipe suggestions from your cart\n- Meal planning for the week\n- Nutrition information\n- Ingredient substitutions\n- Cooking tips & tricks\n\nHow can I help you today?",
+      text: "Hi! I'm your FreshMart AI Chef! I can help you with:\n\n- Recipe suggestions from your cart\n- Recipe → Cart: turn a dish into ingredients\n- Meal planning for the week\n- Nutrition information\n- Ingredient substitutions\n\nHow can I help you today?",
       type: 'general'
     }
   ]);
   const [inputValue, setInputValue] = useState('');
   const [isLoading, setIsLoading] = useState(false);
+  const [awaitingDish, setAwaitingDish] = useState(false);
   const messagesEndRef = useRef<HTMLDivElement>(null);
   const inputRef = useRef<HTMLInputElement>(null);
 
@@ -53,6 +62,7 @@ export const AIAssistant: React.FC<AIAssistantProps> = ({ cart }) => {
   }, [isOpen]);
 
   const quickActions: QuickAction[] = [
+    { icon: <Soup className="h-4 w-4" />, label: 'Cook a Dish', action: 'recipe-cart', color: 'bg-pink-100 text-pink-600 hover:bg-pink-200' },
     { icon: <ChefHat className="h-4 w-4" />, label: 'Recipe', action: 'recipe', color: 'bg-orange-100 text-orange-600 hover:bg-orange-200' },
     { icon: <Utensils className="h-4 w-4" />, label: 'Meal Plan', action: 'meal-plan', color: 'bg-blue-100 text-blue-600 hover:bg-blue-200' },
     { icon: <Apple className="h-4 w-4" />, label: 'Nutrition', action: 'nutrition', color: 'bg-green-100 text-green-600 hover:bg-green-200' },
@@ -60,10 +70,39 @@ export const AIAssistant: React.FC<AIAssistantProps> = ({ cart }) => {
     { icon: <Leaf className="h-4 w-4" />, label: 'Tips', action: 'tips', color: 'bg-teal-100 text-teal-600 hover:bg-teal-200' },
   ];
 
+  const fetchRecipeIngredients = async (dish: string) => {
+    setIsLoading(true);
+    try {
+      const data = await api.recipeToCart(dish);
+      const recipe: RecipeResult = {
+        dish: data.dish,
+        matched: data.matched,
+        unmatched: data.unmatched,
+      };
+      const intro = data.matched.length > 0
+        ? `Here are the ingredients I found in our store for "${dish}". Tap a product to add it, or "Add All".`
+        : `I couldn't find any matching products in our store for "${dish}".`;
+      setMessages(prev => [...prev, { role: 'ai', text: intro, type: 'recipe-cart', recipe }]);
+    } catch (e: any) {
+      setMessages(prev => [...prev, { role: 'ai', text: e.message || 'Failed to fetch ingredients.', type: 'general' }]);
+    }
+    setIsLoading(false);
+  };
+
   const handleQuickAction = async (action: string) => {
     const cartItems = cart.map(item => item.name);
 
     let userMessage = '';
+
+    if (action === 'recipe-cart') {
+      setAwaitingDish(true);
+      setMessages(prev => [
+        ...prev,
+        { role: 'user', text: 'Cook a dish' },
+        { role: 'ai', text: 'What would you like to cook? Type the dish name (e.g. "Paneer Butter Masala") and I\'ll add the ingredients to your cart.', type: 'general' }
+      ]);
+      return;
+    }
 
     switch (action) {
       case 'recipe':
@@ -130,6 +169,13 @@ export const AIAssistant: React.FC<AIAssistantProps> = ({ cart }) => {
     const userMessage = inputValue.trim();
     setInputValue('');
     setMessages(prev => [...prev, { role: 'user', text: userMessage }]);
+
+    if (awaitingDish) {
+      setAwaitingDish(false);
+      await fetchRecipeIngredients(userMessage);
+      return;
+    }
+
     setIsLoading(true);
 
     try {
@@ -236,7 +282,7 @@ export const AIAssistant: React.FC<AIAssistantProps> = ({ cart }) => {
       {/* Messages */}
       <div className="flex-1 overflow-y-auto p-4 space-y-4 bg-gray-50 min-h-[280px]">
         {messages.map((msg, idx) => (
-          <div key={idx} className={`flex ${msg.role === 'user' ? 'justify-end' : 'justify-start'}`}>
+          <div key={idx} className={`flex flex-col ${msg.role === 'user' ? 'items-end' : 'items-start'}`}>
             <div
               className={`max-w-[85%] p-3 rounded-2xl text-sm whitespace-pre-wrap ${
                 msg.role === 'user'
@@ -246,6 +292,45 @@ export const AIAssistant: React.FC<AIAssistantProps> = ({ cart }) => {
             >
               {msg.text}
             </div>
+
+            {msg.type === 'recipe-cart' && msg.recipe && msg.recipe.matched.length > 0 && (
+              <div className="mt-2 w-[95%] bg-white border border-gray-200 rounded-2xl p-3 shadow-sm space-y-2">
+                {msg.recipe.matched.map((p) => (
+                  <div key={p.id} className="flex items-center gap-3 p-2 rounded-lg hover:bg-gray-50">
+                    <img src={p.image} alt={p.name} className="h-10 w-10 rounded-md object-cover bg-gray-100 flex-shrink-0" />
+                    <div className="flex-1 min-w-0">
+                      <p className="text-xs font-semibold text-gray-900 truncate">{p.name}</p>
+                      <p className="text-[11px] text-gray-500">
+                        ₹{p.price}/{p.unit} • Need: {p.requestedQuantity}
+                      </p>
+                    </div>
+                    {onAddToCart && (
+                      <button
+                        onClick={() => onAddToCart(p)}
+                        className="flex-shrink-0 bg-green-600 hover:bg-green-700 text-white p-1.5 rounded-full"
+                        title="Add to cart"
+                      >
+                        <Plus className="h-3.5 w-3.5" />
+                      </button>
+                    )}
+                  </div>
+                ))}
+                {onAddToCart && (
+                  <button
+                    onClick={() => msg.recipe!.matched.forEach((p) => onAddToCart(p))}
+                    className="w-full mt-1 flex items-center justify-center gap-2 bg-gradient-to-r from-green-500 to-emerald-600 text-white text-xs font-bold py-2 rounded-lg hover:opacity-90"
+                  >
+                    <ShoppingCart className="h-3.5 w-3.5" />
+                    Add All {msg.recipe.matched.length} to Cart
+                  </button>
+                )}
+                {msg.recipe.unmatched.length > 0 && (
+                  <div className="text-[11px] text-gray-500 pt-1 border-t border-gray-100">
+                    Not in store: {msg.recipe.unmatched.map((u) => u.name).join(', ')}
+                  </div>
+                )}
+              </div>
+            )}
           </div>
         ))}
         {isLoading && (

@@ -200,7 +200,7 @@ export const Navbar: React.FC<NavbarProps> = ({
             )}
           </div>
 
-          <div className="flex items-center md:hidden space-x-2">
+          <div className="flex items-center md:hidden space-x-1">
             {/* Mobile Dark Mode Toggle */}
             <button
               onClick={toggleTheme}
@@ -208,6 +208,39 @@ export const Navbar: React.FC<NavbarProps> = ({
             >
               {isDark ? <Sun className="h-5 w-5" /> : <Moon className="h-5 w-5" />}
             </button>
+
+            {currentView !== 'admin' && (
+              <>
+                {/* Mobile Wishlist Button */}
+                <button
+                  onClick={onWishlistClick}
+                  className="relative p-2 text-gray-600 dark:text-gray-300 hover:text-red-500 transition-colors"
+                  title="My Wishlist"
+                >
+                  <Heart className={`h-5 w-5 ${wishlist.length > 0 ? 'fill-red-500 text-red-500' : ''}`} />
+                  {wishlist.length > 0 && (
+                    <span className="absolute top-0 right-0 inline-flex items-center justify-center px-1.5 py-0.5 text-[10px] font-bold leading-none text-white transform translate-x-1/4 -translate-y-1/4 bg-red-500 rounded-full">
+                      {wishlist.length}
+                    </span>
+                  )}
+                </button>
+
+                {/* Mobile Cart Button */}
+                <button
+                  onClick={toggleCart}
+                  className="relative p-2 text-gray-600 dark:text-gray-300 hover:text-green-600 transition-colors"
+                  title="Cart"
+                >
+                  <ShoppingCart className="h-6 w-6" />
+                  {cartCount > 0 && (
+                    <span className="absolute top-0 right-0 inline-flex items-center justify-center px-1.5 py-0.5 text-[10px] font-bold leading-none text-white transform translate-x-1/4 -translate-y-1/4 bg-red-500 rounded-full">
+                      {cartCount}
+                    </span>
+                  )}
+                </button>
+              </>
+            )}
+
             <button
               onClick={toggleMenu}
               className="p-2 rounded-md text-gray-600 dark:text-gray-300 hover:text-gray-900 dark:hover:text-white focus:outline-none"

@@ -306,6 +306,24 @@ export const api = {
     return data.response;
   },
 
+  recipeToCart: async (dish: string): Promise<{
+    dish: string;
+    ingredients: { name: string; quantity: string }[];
+    matched: (Product & { requestedQuantity: string })[];
+    unmatched: { name: string; quantity: string }[];
+  }> => {
+    const res = await fetch('/api/ai/recipe-to-cart', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ dish })
+    });
+    if (!res.ok) {
+      const err = await res.json().catch(() => ({}));
+      throw new Error(err.error || 'Failed to fetch ingredients');
+    }
+    return await res.json();
+  },
+
   // Dashboard & Analytics
   getDashboard: async (period: 'day' | 'week' | 'month' | 'year' = 'month'): Promise<any> => {
     const res = await fetchWithAuth(`/api/dashboard?period=${period}`);

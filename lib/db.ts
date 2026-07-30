@@ -139,6 +139,7 @@ export function initializeDatabase() {
       payment_method TEXT DEFAULT 'cash',
       customer_id INTEGER,
       cashier_id INTEGER,
+      cashier_name TEXT,
       created_at TEXT DEFAULT CURRENT_TIMESTAMP,
       FOREIGN KEY (customer_id) REFERENCES users(id),
       FOREIGN KEY (cashier_id) REFERENCES users(id)
